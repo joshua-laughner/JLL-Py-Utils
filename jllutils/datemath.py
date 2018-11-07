@@ -1,4 +1,171 @@
+from __future__ import print_function, absolute_import, division
+
+from collections import OrderedDict
 import datetime as base_datetime
+
+import pdb
+
+
+class SmartDatetime(base_datetime.datetime):
+    """
+    Extends the creation method of :class:`datetime.datetime` objects to allow for days of year and fractional time segments.
+
+    The built-in datetime object has some, fairly reasonable, limitations:
+
+        1. Month and day must be given.
+        2. All time segments must be integers.
+        3. The only way to specify the day as day-of-year is to use :func:`~datetime.datetime.strptime`
+
+    However, sometimes it's only the year or year and month that matter, or sometimes datasets specify the time using
+    fractions of a day, hour, etc., and using day-of-year is fairly common in scientific datasets.
+
+    This class is an interface to the built-in :class:`~datetime.datetime` class, it does not currently return an
+    instance of itself, but rather an instance of :class:`~datetime.datetime`. This should only matter if you're
+    testing type with ``isinstance``; ``isinstance(SmartDatetime(...), SmartDatetime)`` will return ``False`` because
+    ``SmartDatetime(...)`` returns a different type. Unfortunately, this seems to be an issue with how
+    :class:`~datetime.datetime` works. As a workaround, this module also includes a convenience :func:`is_datetime`
+    that is essentially an alias to ``isinstance(obj, datetime.datetime)``.
+
+    The normal ways of creating a datetime work for this class::
+
+        >>> SmartDatetime(2011, 1,1) == datetime(2011, 1, 1)
+        True
+        >>> SmartDatetime(2012, 2, 29, 6, 30) == datetime(2012, 2, 29, 6, 30)
+        True
+        >>> SmartDatetime.strptime('2018.001', '%Y.%j') == datetime.strptime('2018.001', '%Y.%j')
+        True
+
+    The key differences are, first, month and day may be omitted:
+
+        >>> SmartDatetime(2018) == datetime(2018, 1, 1)
+        True
+        >>> SmartDatetime(2018, 7) == datetime(2018, 7, 1)
+        True
+
+    Second, the ``doy`` keyword allows you to specify day-of-year directly::
+
+        >>> SmartDatetime(2018, doy=180) == datetime.strptime('2018.180', '%Y.%j')
+        True
+
+    but be aware that if ``doy`` is given, ``month`` and ``day`` must be omitted.
+
+    Third, fraction segments may be specified, e.g.::
+
+        >>> SmartDatetime(2018, 7, 1.5) == datetime(2018, 7, 1, 12)
+        True
+
+    There are some restrictions on using fractional segments.
+
+        1. No segments after the fractional one can be given, i.e. if you give ``days = 1.5``, then ``hours``,
+           ``minutes``, ``seconds``, etc. may not be specified. This is to keep the behavior simple, rather than
+           adding fractional days to existing hours, which seems likely to create weird bugs if you accidentally
+           pass both a fractional day and hour, for example.
+
+        2. Fractional months are not currently allowed.
+
+
+    """
+    def __new__(cls, year, month=None, day=None, hour=None, minute=None, second=None, microsecond=None, doy=None, *args, **kwargs):
+        def convert_doy(year, day_of_year):
+            # Need to use a timedelta to account for fractional days of year. Also need to subtract one day, because
+            # Jan 1 is DOY 1, but adding a 1 day timedelta to Jan 1 = Jan 2.
+            return base_datetime.datetime(year=year, month=1, day=1, *args, **kwargs) + base_datetime.timedelta(days=day_of_year - 1)
+
+        # Use both for checking doy and converting fractional years
+        days_in_year = (base_datetime.datetime(int(year) + 1, 1, 1) - base_datetime.datetime(int(year), 1, 1)).days
+
+        # If doy (day of year) is given, convert it to month and day first
+        if doy is not None:
+            if month is not None or day is not None:
+                raise TypeError('Cannot give both day_of_year and month/day')
+
+            if not isinstance(doy, (int, float)):
+                raise TypeError('day_of_year must be an integer or a float')
+
+            # Need to allow doy to be, e.g. 365.5 to get to noon on Dec 31.
+            if doy < 1 or doy >= days_in_year + 1:
+                raise ValueError('doy must be >= 1 and < {} for year {}'.format(days_in_year + 1, year))
+            elif isinstance(doy, float):
+                if any([x is not None for x in (hour, minute, second, microsecond)]):
+                    raise TypeError('"doy" was given a fractional value, but one or more smaller segments were '
+                                    'also given. All segments smaller than the one given the fractional value '
+                                    'must be omitted')
+                return convert_doy(year, doy)
+            else:
+                tmp_date = convert_doy(year, doy)
+                month, day = (tmp_date.month, tmp_date.day)
+
+        # Now we deal with fractional values for each time segment. The rule is that a fractional time segment must be
+        # the smallest time segment given, and will set all smaller segments. If any smaller segment is given, raise
+        # an exception.
+        segments = OrderedDict([ ('year', year), ('month', month), ('day', day), ('hour', hour),
+                                 ('minute', minute), ('second', second), ('microsecond', microsecond) ])
+        frac_tdel = base_datetime.timedelta(days=0)
+
+        defaults = {'month': 1, 'day': 1, 'hour': 0, 'minute': 0, 'second': 0, 'microsecond': 0}
+
+        # need this since odict keys object can't be directly indexed
+        segment_keys = [k for k in segments.keys()]
+        for key, val in segments.items():
+            next_key_ind = segment_keys.index(key) + 1
+
+            # Only need to do something if value is not an integer. If None, set the default. If a float, compute
+            # all the smaller segments from the fractional component.
+            if isinstance(val, int):
+                continue
+            elif val is None:
+                try:
+                    segments[key] = defaults[key]
+                except KeyError:
+                    raise TypeError('{} must be given'.format(key))
+
+            elif not isinstance(val, float):
+                raise TypeError('{} must be an int or float, if given'.format(key))
+            else:
+                # We require that no smaller segments were given.
+                if any([segments[k] is not None for k in segment_keys[next_key_ind:]]):
+                    raise TypeError('"{}" was given a fractional value, but one or more smaller segments were '
+                                    'also given. All segments smaller than the one given the fractional value '
+                                    'must be omitted'.format(key))
+
+                # If there's a fractional part, we need to separate it from the integer part, then convert it to
+                # integers of the smaller parts. We can use a timedelta for this.
+                if key == segment_keys[-1]:
+                    # If this is the last segment, just truncate
+                    segments[key] = int(val)
+                elif key == 'year':
+                    # years need special handling because by the logic we use
+                    int_year = int(val)
+                    return convert_doy(int_year, (val - int_year) * days_in_year + 1)
+                elif key == 'month':
+                    raise NotImplementedError('Fractional months not yet supported')
+                else:
+                    int_val = int(val)
+                    segments[key] = int_val
+                    frac_tdel = base_datetime.timedelta(**{key + 's': val - int_val})
+
+                # once we found a fractional part we should be done.
+                break
+
+        # Pass only the time segments we got directly to the base datetime. next_key_ind will be set because we must
+        # go through the above loop at least once, for year. Incorporate these values into kwargs to be Python 2
+        # compatible (py 2 does not allow multiple ** expressions).
+        given_segments = {k: segments[k] for k in segment_keys[:next_key_ind]}
+        kwargs.update(given_segments)
+
+        # The fractional bit is handled by the time delta.
+        return super(SmartDatetime, cls).__new__(cls, *args, **kwargs) + frac_tdel
+
+
+def is_datetime(obj):
+    """
+    Check if the given object is a datetime.
+
+    :return: ``True`` if the object is an instance of :class:`datetime.datetime`, ``False`` otherwise.
+    :rtype: bool
+    """
+    return isinstance(obj, base_datetime.datetime)
+
 
 
 class datetime(base_datetime.datetime):
