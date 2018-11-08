@@ -2,6 +2,7 @@ from __future__ import print_function, absolute_import, division
 
 from collections import OrderedDict
 import datetime as base_datetime
+from sys import float_info
 
 import pdb
 
@@ -65,11 +66,18 @@ class SmartDatetime(base_datetime.datetime):
 
 
     """
-    def __new__(cls, year, month=None, day=None, hour=None, minute=None, second=None, microsecond=None, doy=None, *args, **kwargs):
+    def __new__(cls, year, month=None, day=None, hour=None, minute=None, second=None, microsecond=None, doy=None,
+                allow_whole_floats=False, *args, **kwargs):
         def convert_doy(year, day_of_year):
             # Need to use a timedelta to account for fractional days of year. Also need to subtract one day, because
             # Jan 1 is DOY 1, but adding a 1 day timedelta to Jan 1 = Jan 2.
             return base_datetime.datetime(year=year, month=1, day=1, *args, **kwargs) + base_datetime.timedelta(days=day_of_year - 1)
+
+        def check_fractional(value):
+            if allow_whole_floats:
+                return not abs( (value - int(value)) < float_info.epsilon)
+            else:
+                return not isinstance(value, int)
 
         # Use both for checking doy and converting fractional years
         days_in_year = (base_datetime.datetime(int(year) + 1, 1, 1) - base_datetime.datetime(int(year), 1, 1)).days
@@ -85,14 +93,19 @@ class SmartDatetime(base_datetime.datetime):
             # Need to allow doy to be, e.g. 365.5 to get to noon on Dec 31.
             if doy < 1 or doy >= days_in_year + 1:
                 raise ValueError('doy must be >= 1 and < {} for year {}'.format(days_in_year + 1, year))
-            elif isinstance(doy, float):
+            elif check_fractional(doy):
                 if any([x is not None for x in (hour, minute, second, microsecond)]):
-                    raise TypeError('"doy" was given a fractional value, but one or more smaller segments were '
+                    raise TypeError('"doy" was given a fractional value, but one or more other segments were '
                                     'also given. All segments smaller than the one given the fractional value '
                                     'must be omitted')
-                return convert_doy(year, doy)
+                elif check_fractional(year):
+                    raise TypeError('Both year and doy were given with fractional components.')
+
+                # if we get here, year is not fractional, but may be a float, so force to int
+                return convert_doy(int(year), doy)
             else:
-                tmp_date = convert_doy(year, doy)
+                # if we're here, both year and doy must be not fractional but may be floats
+                tmp_date = convert_doy(int(year), int(doy))
                 month, day = (tmp_date.month, tmp_date.day)
 
         # Now we deal with fractional values for each time segment. The rule is that a fractional time segment must be
@@ -109,16 +122,19 @@ class SmartDatetime(base_datetime.datetime):
         for key, val in segments.items():
             next_key_ind = segment_keys.index(key) + 1
 
-            # Only need to do something if value is not an integer. If None, set the default. If a float, compute
-            # all the smaller segments from the fractional component.
-            if isinstance(val, int):
-                continue
-            elif val is None:
+            if val is None:
                 try:
                     segments[key] = defaults[key]
                 except KeyError:
                     raise TypeError('{} must be given'.format(key))
 
+            # Only need to do something if value is not an integer. If None, set the default. If a float, compute
+            # all the smaller segments from the fractional component.
+            elif not check_fractional(val):
+                # again, val may be a whole number but be a float, so coerce to int for datetime
+                segments[key] = int(val)
+                continue
+            
             elif not isinstance(val, float):
                 raise TypeError('{} must be an int or float, if given'.format(key))
             else:
