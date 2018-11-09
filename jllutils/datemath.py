@@ -89,7 +89,10 @@ class SmartDatetime(base_datetime.datetime):
             if month is not None or day is not None:
                 raise TypeError('Cannot give both day_of_year and month/day')
 
-            if not isinstance(doy, (int, float)):
+            # this will allow both native python numbers and numpy numeric types through,
+            # but should not allow numpy arrays through. also let's not try to create
+            # imaginary dates, please.
+            if not np.issubdtype(type(doy), np.number) or not np.isreal(doy):
                 raise TypeError('day_of_year must be an integer or a float')
 
             # Need to allow doy to be, e.g. 365.5 to get to noon on Dec 31.

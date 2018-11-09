@@ -47,3 +47,38 @@ def pad_masked(m, *args, **kwargs):
     mprime.fill_value = m.fill_value
 
     return mprime
+
+
+def mask_from_criteria(*criteria):
+
+    if len(criteria) == 0:
+        raise ValueError('Must give at least one criterion')
+    
+    expected_shape = criteria[0].shape
+    for idx, crit in enumerate(criteria[1:]):
+        if crit.shape != expected_shape:
+            raise ValueError('Criteria no. {} has a different shape than the first one'.format(idx+2))
+
+    # If any of these are masked arrays, convert to numpy arrays first because a bit-wise OR is not
+    # allowed to work with masked arrays. We'll assume that if an element is masked in the criterion,
+    # it should be masked in the final mask.
+    mask = np.zeros(expected_shape, dtype=np.bool)
+    for crit in criteria:
+        if isinstance(crit, ma.masked_array):
+            crit = crit.filled(True)
+        elif not isinstance(crit, np.ndarray):
+            raise TypeError('Each criterion must be a numpy.ndarray or numpy.ma.masked_array')
+        
+        if not np.issubdtype(crit.dtype, np.bool_):
+            raise TypeError('The dtype of each criterion array must be a sub-dtype of numpy.bool')
+
+        mask |= crit
+
+    return mask
+
+
+def iter_unmasked(marray):
+    xx = np.logical_not(marray.mask)
+    iter_array = marray[xx]
+    for element in iter_array:
+        yield element
