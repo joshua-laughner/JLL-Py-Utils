@@ -4,6 +4,8 @@ from collections import OrderedDict
 import datetime as base_datetime
 from sys import float_info
 
+import numpy as np
+
 import pdb
 
 
@@ -183,27 +185,8 @@ def is_datetime(obj):
     return isinstance(obj, base_datetime.datetime)
 
 
-
-class datetime(base_datetime.datetime):
-    """
-    datetime(year, month, day[, hour[, minute[, second[, microsecond[, tzinfo]]]]])
-
-    Replacement datetime object, for compatibility with :class:`timedelta` from this module.
-    """
-    def __add__(self, other):
-        if isinstance(other, timedelta):
-            return timedelta.__add__(other, self)
-        else:
-            return super(datetime, self).__add__(other)
-
-    def __sub__(self, other):
-        if isinstance(other, timedelta):
-            return timedelta.__add__(-other, self)
-        else:
-            return super(datetime, self).__sub__(other)
-
-
 class timedelta(object):
+    #TODO: try subclasses base timedelta?
     """
     timedelta(years=0, months=0, weeks=0, days=0, hours=0, minutes=0, seconds=0, milliseconds=0, microseconds=0)
 
@@ -237,6 +220,21 @@ class timedelta(object):
         self._seconds = hours * 3600 + minutes * 60 + seconds
         self._microseconds = milliseconds * 1000 + microseconds
 
+    def __str__(self):
+        seconds = self._seconds + self._microseconds
+        hours = int(seconds/3600)
+        seconds %= 3600
+        minutes = int(seconds/60)
+        seconds %= 60
+
+        attrs = {'months': self._months, 'days': self._days, 'hours': hours, 'minutes': minutes, 'seconds': seconds}
+        s = []
+        for k, v in attrs.items():
+            if v != 0:
+                s.append('{} {}'.format(v, k))
+
+        return ', '.join(s)
+
     def total_seconds(self, start_date=None):
         """
         Compute the total number of seconds (fractional, if necessary) represented by the timedelta.
@@ -263,17 +261,29 @@ class timedelta(object):
         return base_datetime.timedelta(days=self._days, seconds=self._seconds, microseconds=self._microseconds)
 
     def __add__(self, other):
-        if not isinstance(other, datetime):
+        # TODO: define for other timedelta objects as well
+        if not isinstance(other, base_datetime.datetime):
             raise TypeError('Add only defined for timedelta and datemath.datetime objects')
 
         new_date = add_months(other, self._months)
         return new_date + self._base_timedelta()
 
+    def __radd__(self, other):
+        return self.__add__(other)
+
     def __sub__(self, other):
+        if isinstance(other, base_datetime.datetime):
+            raise TypeError('Unsupported operation: timedelta - datetime. (datetime - timedelta is okay though)')
+        else:
+            raise TypeError('unsupported operand type(s) for -: timedelta and' + type(other).__name__)
+
+    def __rsub__(self, other):
         return timedelta.__add__(-self, other)
 
     def __neg__(self):
         return timedelta(months=-self._months, days=-self._days, seconds=-self._seconds, microseconds=-self._microseconds)
+
+
 
 
 def add_months(date_in, months=1):
@@ -377,3 +387,25 @@ def eom_date(date_in, hms=False):
         return date_in.replace(day=eom_day(date_in))
     else:
         return som_date(add_months(date_in), True) - base_datetime.timedelta(microseconds=1)
+
+
+def date_mean(datetimes, axis=None, reduce_to_scalar=True):
+    if isinstance(datetimes, np.ndarray):
+        timestamps = np.zeros_like(datetimes, dtype=np.float)
+
+        for idx, val in np.ndenumerate(datetimes):
+            timestamps[idx] = val.timestamp()
+        timestamps = np.mean(timestamps, axis=axis)
+        result = np.empty_like(timestamps, dtype=np.object)
+        for idx, val in np.ndenumerate(timestamps):
+            result[idx] = base_datetime.datetime.fromtimestamp(val)
+
+        if result.ndim == 0 and reduce_to_scalar:
+            result = result.item()
+    else:
+        timestamps = [x.timestamp() for x in datetimes]
+        result = base_datetime.datetime.fromtimestamp(np.mean(timestamps))
+        if not reduce_to_scalar:
+            result = [result]
+
+    return result
