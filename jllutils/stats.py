@@ -1,6 +1,14 @@
 import numpy as np
 from numpy import ma
 
+
+class ConvergenceError(Exception):
+    """
+    Error to use if a process fails to converge
+    """
+    pass
+
+
 def _rolling_input_helper(A, window, edges, force_centered):
     if A.ndim != 1:
         raise NotImplementedError('Rolling operations not yet implemented for arrays with dimension != 1')
@@ -112,3 +120,63 @@ def rolling_window(a, window):
     shape = a.shape[:-1] + (a.shape[-1] - window + 1, window)
     strides = a.strides + (a.strides[-1],)
     return np.lib.stride_tricks.as_strided(a, shape=shape, strides=strides, writeable=False)
+
+
+def york_linear_fit(x, std_x, y, std_y, max_iter=100, nboot=10):
+    # 1.) Choose an initial value of the slope. Could do a simple y-on-x regression, but here we just assume it starts
+    # at 0.
+    b_prev = 0
+
+    # 2.) Compute weights in X and Y. As is fairly standard, these are set to be the inverse square of the
+    # uncertainties of X and Y.
+    w_x = std_x ** -2.0
+    w_y = std_y ** -2.0
+
+    # We're assuming no correlation between X and Y
+    r = np.zeros_like(x)
+
+    iterations = 0
+    while True:
+        # 3.) Calculate the overall weights for each point
+        w_denom = w_x + b_prev**2 * w_y - 2 * b_prev * r * (w_x * w_y)**0.5
+        w = w_x * w_y / w_denom
+
+        # 4.) Calculate the distance of each observed point from its average, then use this to estimate beta
+        xbar = ma.sum(w * x) / ma.sum(w)
+        ybar = ma.sum(w * y) / ma.sum(w)
+        u = x - xbar
+        v = y - ybar
+        beta = w * (u / w_y + b_prev * v / w_x - (b_prev * u + v) * (r / np.sqrt(w_x * w_y)))
+
+        # 5.) Improve the estimate of the slopw
+        b = ma.sum(w * beta * v)/ma.sum(w * beta * u)
+
+        # 6.) Iterate until two successive slopes are within the convergence limit.
+        if np.abs(b - b_prev) < 1e-15:
+            break
+        else:
+            b_prev = b
+            iterations += 1
+
+        if iterations > max_iter:
+            raise ConvergenceError('York fit did not converge in {} iterations'.format(max_iter))
+
+    # 7.) Calculate the intercept from the most recent average values of x, y, and b (slope)
+    a = ybar - b * xbar
+
+    # 8.) Calculate the "adjusted" values
+    x_i = xbar + beta
+    y_i = xbar + beta
+
+    # 9.) recalculate the U and V (distance from slope) values with the adjusted points
+    xbar_i = ma.sum(w * x_i) / ma.sum(w)
+    ybar_i = ma.sum(w * y_i) / ma.sum(w)
+    u_i = x_i - xbar_i
+    v_i = y_i - ybar_i
+
+    # 10.) Calculate the uncertainty in the slope and intercept
+    sigma_b = np.sqrt(1 / ma.sum(w * u_i**2))
+    sigma_a = np.sqrt(1 / ma.sum(w) + xbar_i**2 * sigma_b**2)
+
+    results = {'slope': b, 'int': a, 'slope_err': sigma_b, 'int_err': sigma_a}
+    return results
