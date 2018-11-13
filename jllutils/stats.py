@@ -9,6 +9,84 @@ class ConvergenceError(Exception):
     pass
 
 
+class PolyFitModel(object):
+    @property
+    def coeffs(self):
+        return self._coeffs
+
+    @property
+    def yint(self):
+        return self._coeffs[0]
+
+    @property
+    def slope(self):
+        return self._coeffs[1]
+
+    @property
+    def data(self):
+        return self._data
+
+    def __init__(self, x, y, xerr, yerr, model='york', model_opts=None):
+        # Coerce input data to floats
+        x = self.fix_in_type(x)
+        y = self.fix_in_type(y)
+        xerr = self.fix_in_type(xerr)
+        yerr = self.fix_in_type(yerr)
+
+        self._fit_fxn = self._get_fit_fxn(model)
+        self._model_opts = model_opts if model_opts is not None else dict()
+        self._data = {'x': x, 'y': y, 'xerr': xerr, 'yerr': yerr}
+        self._coeffs, self._coeff_errors = self._fit_fxn(x, y, xerr, yerr, self._model_opts)
+
+
+    @classmethod
+    def _get_fit_fxn(cls, model):
+        def york_fit(x, y, xerr, yerr, opts):
+            result = york_linear_fit(x, xerr, y, yerr, **opts)
+            poly = np.array([result['yint'], result['slope']])
+            poly_err = np.array([result['yint_err'], result['slope_err']])
+            return poly, poly_err
+
+        if model.lower() == 'york':
+            return york_fit
+
+    def __str__(self):
+        s = 'y = '
+        power = 0
+        for c, e in zip(self._coeffs, self._coeff_errors):
+            if power > 0:
+                s += ' + '
+
+            if e is not None:
+                s += '({:.3g} +/- {:.3g})'.format(c, e)
+            else:
+                s += '{:.3g}'.format(c)
+
+            if power == 1:
+                s += 'x'
+            elif power > 1:
+                s += 'x**{}'.format(power)
+
+            power += 1
+
+        return s
+
+    def __call__(self, x):
+        return self.predict(x)
+
+    def predict(self, x):
+        x = self.fix_in_type(x)
+        y = np.zeros_like(x)
+        for p, c in enumerate(self._coeffs):
+            y += c * x**p
+
+        return y
+
+    @staticmethod
+    def fix_in_type(input):
+        return input.astype(np.float)
+
+
 def _rolling_input_helper(A, window, edges, force_centered):
     if A.ndim != 1:
         raise NotImplementedError('Rolling operations not yet implemented for arrays with dimension != 1')
@@ -200,3 +278,23 @@ def york_linear_fit(x, std_x, y, std_y, max_iter=100, nboot=10):
 
     results = {'slope': b, 'yint': a, 'slope_err': sigma_b, 'yint_err': sigma_a}
     return results
+
+
+def r2(y_data, y_pred=None, x=None, model=None):
+    if y_pred is not None and (x is not None or model is not None):
+        raise TypeError('Give either y_pred or x + model, not all of them')
+
+    if y_pred is None:
+        if x is None or model is None:
+            raise TypeError('If y_pred is not given, must provide both x and model')
+        elif not isinstance(model, PolyFitModel):
+            raise TypeError('model must be a PolyFitModel instance, if given')
+
+        y_pred = model.predict(x)
+
+    # Definition of R2: 1 - SS_resid / SS_var, where:
+    #   SS_resid = sum( (y_fit - y_data)**2 )
+    #   SS_var = sum( (y_data - mean(y_data))**2 )
+    ss_resid = ma.sum((y_pred - y_data)**2.0)
+    ss_var = ma.sum((y_data - ma.mean(y_data))**2.0)
+    return 1.0 - ss_resid / ss_var
