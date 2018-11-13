@@ -123,6 +123,26 @@ def rolling_window(a, window):
 
 
 def york_linear_fit(x, std_x, y, std_y, max_iter=100, nboot=10):
+    # Input checking:
+    #
+    # Some of the calculations involved in this fitting procedure are fragile if given invalid values, especially infs
+    # or NaNs, but also 0s in the case of the std's (since we put them in the denominator when calculating weights).
+    # Further, I don't trust the results if given negative weights - I don't know what that would mean, or if it would
+    # be handled correctly by the code as written - so I require that the std's all be > 0.
+    #
+    # Since we do all the operation with masked array ops, if the input is a masked array that has the offending NaN,
+    # Inf, or <= 0 values masked, this should work. Note that, unlike some numpy ops, np.isfinite and np.isnan seem to
+    # return a masked array if operating on a masked array.
+    shp = x.shape
+    inputs = [x, std_x, y, std_y]
+    if any([v.shape != shp for v in inputs]):
+        raise ValueError('x, std_x, y, and std_y must all have the same shape')
+    elif np.any(std_x <= 0) or np.any(std_y <= 0):
+        raise ValueError('Negative or zero values of std_x and std_y are not permitted')
+    elif any([np.any(~np.isfinite(v)) for v in inputs]):
+        raise ValueError('Non-finite values (Inf or NaN) are not permitted in the input arrays. Either remove or mask '
+                         'them.')
+
     # 1.) Choose an initial value of the slope. Could do a simple y-on-x regression, but here we just assume it starts
     # at 0.
     b_prev = 0
@@ -178,5 +198,5 @@ def york_linear_fit(x, std_x, y, std_y, max_iter=100, nboot=10):
     sigma_b = np.sqrt(1 / ma.sum(w * u_i**2))
     sigma_a = np.sqrt(1 / ma.sum(w) + xbar_i**2 * sigma_b**2)
 
-    results = {'slope': b, 'int': a, 'slope_err': sigma_b, 'int_err': sigma_a}
+    results = {'slope': b, 'yint': a, 'slope_err': sigma_b, 'yint_err': sigma_a}
     return results
