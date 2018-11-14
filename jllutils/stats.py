@@ -482,9 +482,9 @@ def york_linear_fit(x, std_x, y, std_y, max_iter=100, nboot=10):
     inputs = [x, std_x, y, std_y]
     if any([v.shape != shp for v in inputs]):
         raise ValueError('x, std_x, y, and std_y must all have the same shape')
-    elif np.any(std_x <= 0) or np.any(std_y <= 0):
+    elif ma.any(ma.less_equal(std_x, 0)) or ma.any(ma.less_equal(std_y, 0)):
         raise ValueError('Negative or zero values of std_x and std_y are not permitted')
-    elif any([np.any(~np.isfinite(v)) for v in inputs]):
+    elif any([ma.any(~np.isfinite(v)) for v in inputs]):
         raise ValueError('Non-finite values (Inf or NaN) are not permitted in the input arrays. Either remove or mask '
                          'them.')
 
