@@ -280,7 +280,7 @@ def _rolling_input_helper(A, window, edges, force_centered):
     """
     if A.ndim != 1:
         raise NotImplementedError('Rolling operations not yet implemented for arrays with dimension != 1')
-    elif not isinstance(window, int) or window < 1:
+    elif not np.issubdtype(type(window), np.signedinteger) or window < 1:
         raise ValueError('window must be a positive integer (> 0)')
 
     if force_centered and window % 2 == 0:
@@ -338,22 +338,30 @@ def rolling_mean2(A, window, edges='zeros', force_centered=False):
     return np.convolve(A, conv_fxn, mode='valid')
 
 
-def rolling_nanmean(A, window, edges='zeros', force_centered=False):
+def rolling_nanmean(A, window, edges='zeros', force_centered=False, window_behavior='default'):
     """
     Convenience wrapper around :func:`rolling_op`  that does a nanmean, after replacing masked values in A with NaN
 
     If A is not a masked array (so is just a regular :class:`numpy.ndarray`) it is not changed before doing the nanmean.
+
+    :param window_behavior: optional, changes what happens when the window size is greater than the size of A. The
+     default behavior (given by the string `'default'`) is to
 
     See :func:`rolling_op` for documentation of the other parameters.
     """
     if isinstance(A, ma.masked_array):
         A = A.filled(np.nan)
 
+    if window >= A.size and window_behavior == 'limited':
+        # This mimics the behavior of the matlab `runmean` function used in the original OCO validation code. In that
+        # function, if the window was larger than the array given, it returned an array the same size as
+        return np.repeat(np.nanmean(A), A.size)
+
     A = rolling_op(np.nanmean, A, window, edges=edges, force_centered=force_centered)
     return ma.masked_where(np.isnan(A), A)
 
 
-def rolling_nanstd(A, window, edges='zeros', force_centered=False):
+def rolling_nanstd(A, window, edges='zeros', force_centered=False, ddof=0):
     """
     Convenience wrapper around :func:`rolling_op`  that does a nanstd, after replacing masked values in A with NaN
 
@@ -364,7 +372,10 @@ def rolling_nanstd(A, window, edges='zeros', force_centered=False):
     if isinstance(A, ma.masked_array):
         A = A.filled(np.nan)
 
-    A = rolling_op(np.nanstd, A, window, edges=edges, force_centered=force_centered)
+    def std(x, axis=None):
+        return np.nanstd(x, ddof=ddof, axis=axis)
+
+    A = rolling_op(std, A, window, edges=edges, force_centered=force_centered)
     return ma.masked_where(np.isnan(A), A)
 
 
@@ -427,7 +438,7 @@ def rolling_window(a, window):
     through at array at the memory level.
     """
 
-    if not isinstance(window, int) or window < 1:
+    if not np.issubdtype(type(window), np.signedinteger) or window < 1:
         raise ValueError('window must be a positive integer (>0)')
 
     shape = a.shape[:-1] + (a.shape[-1] - window + 1, window)
