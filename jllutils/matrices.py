@@ -21,6 +21,34 @@ def coord_mat(shape, dtype=np.int, order='C'):
     return mat
 
 
+def masked_full(*args, **kwargs):
+    return ma.masked_array(np.full(*args, **kwargs))
+
+
+def masked_all(shape, fill_value=np.nan, dtype=np.float, order='C'):
+    """
+    Create a masked array where all elements start masked.
+
+    :param shape: The shape to give the array
+    :type shape: iterable
+
+    :param fill_value: the underlying value to give the array elements. Default is NaN.
+
+    :param dtype: the datatype to give the array, must be compatible with the fill value. Default is a numpy float.
+    :type dtype: object
+
+    :param order: the memory order of the array. Default is 'C'
+    :type order: str
+
+    :return: the new masked array
+    :rtype: :class:`numpy.ma.masked_array`
+    """
+    m = np.full(shape, fill_value=fill_value, dtype=dtype, order=order)
+    m = ma.masked_array(m)
+    m.mask = np.ones_like(m, dtype=np.bool)
+    return m
+
+
 def pad_masked(m, *args, **kwargs):
     """
     Pad a masked array
