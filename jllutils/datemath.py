@@ -1,3 +1,7 @@
+"""
+Collection of functions and methods to make certain date operations easier.
+"""
+
 from __future__ import print_function, absolute_import, division
 
 from collections import OrderedDict
@@ -363,11 +367,20 @@ def eom_day(date_in):
     return tmp_date.day
 
 
-def som_date(date_in, hms=False):
+def som_date(date_in, hms=True):
+    """
+    Get the start-of-month date
+
+    :param date_in: date to find the start of the month for.
+    :type date_in: :class:`datetime.datetime`
+
+    :param hms: control whether to force hours and smaller to 0 as well. Default is ``True``.
+    :return:
+    """
     if not hms or isinstance(date_in, base_datetime.date):
         return date_in.replace(day=1)
     else:
-        sub = date_in - datetime(year=date_in.year, month=date_in.month, day=1)
+        sub = date_in - base_datetime.datetime(year=date_in.year, month=date_in.month, day=1)
         return date_in - sub
 
 
@@ -393,6 +406,23 @@ def eom_date(date_in, hms=False):
 
 
 def date_mean(datetimes, axis=None, reduce_to_scalar=True):
+    """
+    Compute the average date of a collection of dates.
+
+    :param datetimes: the collection of date to average
+    :type datetimes: :class:`numpy.ndarray` of :class:`datetime.datetime`s, or any iterable of
+     :class:`datetime.datetime`s
+
+    :param axis: the axis to operate along, if the input is a numpy array
+    :type axis: int or None
+
+    :param reduce_to_scalar: convert the output to a scalar quantity, not an array or list, if possible. Default is
+     ``True``. Will always have an effect if ``datetimes`` is not a numpy array, otherwise will only have an effect
+     if the result of the averaging is a 0 dimensional array.
+
+    :return: the average datetime
+    :rtype: :class:`datetime.datetime` or list or array of such
+    """
     if isinstance(datetimes, np.ndarray):
         timestamps = np.zeros_like(datetimes, dtype=np.float)
 

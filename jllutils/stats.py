@@ -1,3 +1,8 @@
+"""
+Functions for common statistical methods
+"""
+
+
 import numpy as np
 from numpy import ma
 
@@ -24,8 +29,8 @@ class PolyFitModel(object):
               etc.), the polynomial coefficients and their errors, starting from the x**0 term. The values in the
               coefficient error array may be None if the fit does not compute errors in its coefficients.
 
-        If your chosen model function has additional keyword arguments, you can pass them as a dict with the ``model_opts``
-        inpurt.
+        If your chosen model function has additional keyword arguments, you can pass them as a dict with the
+        ``model_opts`` input.
 
         Since this class is for polynomial fitting, the result is stored as a list of coefficients, where for:
 
@@ -34,15 +39,15 @@ class PolyFitModel(object):
 
         the coefficients :math:`a_0`, :math:`a_1`, etc. are stored in the ``coeffs`` property as a list. Only as many
         coefficients as given by the model are stored, so if the model only returns :math:`a_0` and :math:`a_1`, then
-        ``coeffs`` will only have two elements and model.coeffs[2] will raise an ``IndexError``.  If you have an application
-        where you want the coefficient for a given power of :math:`x` regardless of whether that power is used in the model,
-        the ``get_any_coeff`` method will do that.
+        ``coeffs`` will only have two elements and model.coeffs[2] will raise an ``IndexError``.  If you have an
+        application where you want the coefficient for a given power of :math:`x` regardless of whether that power is
+        used in the model, the ``get_any_coeff`` method will do that.
 
-        The :math:`a_0` and :math:`a_1` coefficients are accessible through the special properties ``yint`` and ``slope``.
-        These will always return a value, if not used in the model, 0.0 will be returned.
+        The :math:`a_0` and :math:`a_1` coefficients are accessible through the special properties ``yint`` and
+        ``slope``. These will always return a value, if not used in the model, 0.0 will be returned.
 
-        Once created, instances of this class can be used to predict :math:`y` values for new :math:`x` values. This is done
-        with the ``predict`` method, or by calling the instance itself, e.g.::
+        Once created, instances of this class can be used to predict :math:`y` values for new :math:`x` values.
+        This is done with the ``predict`` method, or by calling the instance itself, e.g.::
 
             >>> x = np.arange(10)
             >>> y = 2 * x
