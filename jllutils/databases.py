@@ -7,27 +7,42 @@ from datetime import datetime as dtime
 import re
 import sqlite3
 
+from numpy import number as npnumber, signedinteger as npint, bool_ as npbool, issubdtype
+
 from .miscutils import all_or_none
 
-from IPython.core.debugger import set_trace
+
+class RowSelectionError(Exception):
+    """
+    Class to use when unable to correctly select a row
+    """
+    pass
+
 
 # The following methods are used to verify and convert Python
 # values into SQLite3 values
 _db_date_fmt = '%Y-%m-%d'
 _db_datetime_fmt = '%Y-%m-%d %H:%M:%S'
 
+
 def check_date(value, name, date_format):
     """
     Check that a date is or can be formatted into a form SQLite3 accepts
+
     :param value: the date value
     :type value: :class:`datetime.datetime` or str in format matching ``date_format``
+
     :param name: the name of the value, to use in error messages
     :type name: str
+
     :param date_format: the format to require the date in. Must be recognized by :func:`~datetime.datetime.strptime`.
     :type date_format: str
+
     :return: the date/time formatted into a proper string
-    :raises: ``ValueError`` if given as an improperly formatted string, ``TypeError`` if given as neither datetime
-     nor string.
+    :rtype: str
+
+    :raises ValueError: if given as an improperly formatted string
+    :raises TypeError: if given as neither datetime nor string.
     """
 
     if isinstance(value, dtime):
@@ -53,38 +68,71 @@ def check_date(value, name, date_format):
 def check_int(value, name):
     """
     Check that the given value is an integer.
+
     :param value: value to check
+
     :param name: name of the value to use in error messages
+
     :return: the value, if it is an int
-    :raises: ``TypeError`` if the value is not an int
+    :rtype: int
+
+    :raises TypeError: if the value is not an int
     """
-    if not isinstance(value, int):
+    if not issubdtype(type(value), npint):
         raise TypeError('{} must be an integer'.format(name))
     else:
-        return value
+        return int(value)
+
+
+def check_real(value, name):
+    """
+    Check that the given value is a float, or can be made one.
+
+    :param value: value to check
+
+    :param name: name of the value to use in error messages
+
+    :return: the value, if it is a float or can be made one
+    :rtype: float
+
+    :raises TypeError: if the value is not a number
+    """
+    if not issubdtype(type(value), npnumber):
+        raise TypeError('{} must be a number'.format(name))
+    else:
+        return float(value)
 
 
 def check_bool(value, name):
     """
     Check that the given value is a boolean.
+
     :param value: value to check
+
     :param name: name of the value to use in error messages
+
     :return: the value, if it is a bool
-    :raises: ``TypeError`` if the value is not a bool
+    :rtype: bool
+
+    :raises TypeError: if the value is not a bool
     """
-    if not isinstance(value, bool):
+    if not issubdtype(value, npbool):
         raise TypeError('{} must be a bool'.format(name))
     else:
-        return value
+        return bool(value)
 
 
 def check_text(value, name):
     """
     Check that the given value is a string.
+
     :param value: value to check
+
     :param name: name of the value to use in error messages
+
     :return: the value, if it is a str
-    :raises: ``TypeError`` if the value is not a str
+
+    :raises TypeError: if the value is not a str
     """
     if not isinstance(value, str):
         raise TypeError('{} must be a string'.format(name))
@@ -103,6 +151,7 @@ def check_text(value, name):
 _sql_var_mapping = {'date': lambda val, name: check_date(val, name, _db_date_fmt),
                     'datetime': lambda val, name: check_date(val, name, _db_datetime_fmt),
                     'integer': check_int,
+                    'real': check_real,
                     'boolean': check_bool,
                     'text': check_text}
 
@@ -135,6 +184,12 @@ class DatabaseTable(ABC):
      being created they will be defined as PRIMARY KEY NOT NULL. May be omitted if connecting to an existing table. If
      not omitted and connecting to an existing table, the list of primary keys must match the existing table.
     :type primary_key_cols: list or tuple of str
+
+    :param modifiers: a dictionary where the keys are the names of columns and the values are strings giving any
+     SQL modifiers that that column should have, as a string. E.g. if you want the "file" column to be unique and not
+     null, then ``modifiers = {'file': 'UNIQUE NOT NULL'} would accomplish that. Not all columns are required to be
+     included in this dictionary; any that are absent are assumed to have no modifiers.
+    :type modifiers: dict
 
     :param autocommit: optional, controls whether every operation on the table should be automatically committed.
      Default is ``False``.
@@ -183,19 +238,19 @@ class DatabaseTable(ABC):
         """
         return self._primary_keys
 
-    def __init__(self, connection, table, columns=None, primary_key_cols=None, autocommit=False, commit_on_close=True,
-                 delete_existing_table=False, verbose=0):
+    def __init__(self, connection, table, columns=None, primary_key_cols=None, modifiers=None,
+                 autocommit=False, commit_on_close=True, delete_existing_table=False, verbose=0):
         """
         See class help.
         """
         self._connection = connection
         self._table_name = table
         self._autocommit = autocommit
-        self._commit_on_close = True
+        self._commit_on_close = commit_on_close
         self._verbose = verbose
 
-        self._columns, self._primary_keys = self.setup_tables(columns, primary_key_cols,
-                                                              delete_existing=delete_existing_table)
+        self._columns, self._primary_keys, self._modifiers = self.setup_tables(columns, primary_key_cols, modifiers,
+                                                                               delete_existing=delete_existing_table)
 
     def __enter__(self):
         """
@@ -224,7 +279,7 @@ class DatabaseTable(ABC):
 
         self._connection.close()
 
-    def log(self, level, msg, *args, **kwargs):
+    def log(self, level, msg, *fmtargs, **fmtkwargs):
         """
        Logging method.
 
@@ -336,7 +391,6 @@ class DatabaseTable(ABC):
 
         return result.fetchall()[0][0]
 
-
     def sql(self, sql_command, values=None, **format_vals):
         """
         Execute an SQL command on the connected database
@@ -390,15 +444,28 @@ class DatabaseTable(ABC):
     #################
     # Setup methods #
     #################
-    def setup_tables(self, columns, primary_keys, delete_existing=False):
+    def setup_tables(self, columns, primary_keys, modifiers, delete_existing=False):
         """
         A method that initializes any required tables.
 
         By default, this ensures that the table exists and has the columns and primary keys specified. If no columns
         or keys are specified, they are read from the table.
 
-        :return: column dictionary and primary keys tuple
-        :rtype: dict and tuple
+        :param columns: the dictionary defining column names and types, or None
+        :type columns: dict or None
+
+        :param primary_keys: the tuple defining which columns are primary keys, or None
+        :type primary_keys: tuple, list, or None
+
+        :param modifiers: the dictionary defining extra modifiers for columns, or None.
+        :type modifiers: dict or None
+
+        :param delete_existing: controls whether to delete an existing table and start from scratch. Default is
+         ``False``.
+        :type delete_existing: bool
+
+        :return: column dictionary, primary keys tuple, and modifiers dictionary
+        :rtype: dict, tuple, dict
         """
         def columns_are_same(col_in, col_table):
             return all([c in col_in for c in col_table]) and all([c in col_table for c in col_in])
@@ -406,21 +473,21 @@ class DatabaseTable(ABC):
         def types_are_same(col_in, col_table):
             # do case-insensitive check because the column types may be upper or lower case in the SQL database
             # assuming that both have the same keys; columns_are_same should be called first
-            return [col_in[k].lower() == col_table[k].lower() for k in col_in.keys()]
+            return all([col_in[k].lower() == col_table[k].lower() for k in col_in.keys()])
 
         if delete_existing:
             self.sql('DROP TABLE IF EXISTS {table};')
             self.commit()
 
-        table_exists = self._check_columns(columns, primary_keys)
+        table_exists = self._check_columns(columns, primary_keys, modifiers)
 
         # If there's no existing table, _check_columns has made sure that the columns are given
         if not table_exists:
             command_str = 'CREATE TABLE IF NOT EXISTS {table} ({columns});'
-            self.sql(command_str, columns=self._format_column_names_types(columns, primary_keys))
+            self.sql(command_str, columns=self._format_column_names_types(columns, primary_keys, modifiers))
 
         # Check that all the columns are present
-        table_columns, table_keys = self._get_table_columns()
+        table_columns, table_keys, table_modifiers = self._get_table_columns()
         if columns is None:
             columns = table_columns
         else:
@@ -438,12 +505,18 @@ class DatabaseTable(ABC):
             if not columns_are_same(primary_keys, table_keys):
                 raise SQLSetupError('Given primary keys are different than the keys in use in the table')
 
-        return columns, primary_keys
+        if modifiers is None:
+            modifiers = table_modifiers
+        else:
+            if not columns_are_same(modifiers, table_modifiers) or not types_are_same(modifiers, table_modifiers):
+                raise SQLSetupError('Given modifiers differ from those in the existing table')
+
+        return columns, primary_keys, modifiers
 
     ############################
     # Table formatting methods #
     ############################
-    def _check_columns(self, columns, primary_keys):
+    def _check_columns(self, columns, primary_keys, modifiers):
         """
         Verify that the given columns/primary keys are compatible with existing ones
 
@@ -452,6 +525,9 @@ class DatabaseTable(ABC):
 
         :param primary_keys: the list or tuple of primary keys, or None
         :type primary_keys: list, tuple, or None
+
+        :param modifiers: the dictionary defining extra modifiers for columns, or None.
+        :type modifiers: dict or None
 
         :return: boolean indicating if the table already exists in the database
         :rtype: bool
@@ -466,6 +542,13 @@ class DatabaseTable(ABC):
             if columns is None or primary_keys is None:
                 raise SQLSetupError(
                     'Creating a new table requires that the columns and primary keys to include be given')
+
+        # Check that all the types in the columns dict have a defined conversion/check function
+        if columns is not None:
+            for k, v in columns.items():
+                if v not in _sql_var_mapping.keys():
+                    raise SQLSetupError('Type "{type}" for column "{col}" is not permitted. Allowed types are '
+                                        '{allowed}'.format(type=v, col=k, allowed=', '.join(_sql_var_mapping.keys())))
 
         # If primary_keys is given, columns must be as well
         if primary_keys is not None:
@@ -482,14 +565,25 @@ class DatabaseTable(ABC):
                         ', '.join(missing_keys)
                     ))
 
+        # modifiers is always optional, but if it is given, columns must be given and all keys of modifiers must
+        # also be in columns. modifiers are ignored if not creating a new table, so only check if we are creating
+        # a table.
+        if modifiers is not None:
+            if columns is None:
+                raise SQLSetupError('If modifiers is given, columns must be as well')
+            else:
+                key_check = [k for k in modifiers.keys() if k not in columns]
+                if len(key_check) > 0:
+                    raise SQLSetupError('The following ')
+
         return not no_table
 
     def _get_table_columns(self):
         """
-        Get the existing columns and primary keys in the table.
+        Get the existing columns, primary keys, and modifiers in the table.
 
-        :return: column name-type dictionary and tuple of primary keys
-        :rtype: dict and tuple
+        :return: column name-type dictionary, tuple of primary keys, modifiers dictionary
+        :rtype: dict, tuple, dict
         """
 
         cur = self.sql('SELECT sql FROM sqlite_master WHERE name="{table}"')
@@ -500,14 +594,21 @@ class DatabaseTable(ABC):
         #   CREATE TABLE secondtable(keycol INTEGER PRIMARY KEY NOT NULL, datcol INTEGER, thing text)
         #
         # So to find the column names we need to find the part inside the parentheses, split it up by commas, then get
-        # the first word in each section as the column name and the second as the type
+        # the first word in each section as the column name and the second as the type.
         match = re.search(r'(?<=\().+?(?=\))', create_cmd).group()
         column_defs = match.split(',')
         columns = {c.split()[0]: c.split()[1] for c in column_defs}
         primary_keys = [c.split()[0] for c in column_defs if 'PRIMARY KEY' in c]
-        return columns, tuple(primary_keys)
 
-    def _format_column_names_types(self, columns=None, primary_keys=None):
+        # If there's modifiers other than "PRIMARY KEY NOT NULL", we want to get those as well.
+        no_prim_keys = match.replace('PRIMARY KEY NOT NULL', '')
+        column_defs = no_prim_keys.split(',')
+        mod_lists = {c.split()[0]: c.split()[2:] for c in column_defs}
+        modifiers = {k: ' '.join(v) for k, v in mod_lists.items() if len(v) > 0}
+
+        return columns, tuple(primary_keys), modifiers
+
+    def _format_column_names_types(self, columns=None, primary_keys=None, modifiers=None):
         """
         Create the string that defines the columns, their types, and any modifiers, to use in table initialization.
 
@@ -518,6 +619,10 @@ class DatabaseTable(ABC):
          possible.
         :type primary_keys: list or tuple
 
+        :param modifiers: the dictionary defining extra modifiers for columns. If omitted, taken from the instance if
+         possible.
+        :type modifiers: dict or None
+
         :return: single string with entries "NAME TYPE [MODIFIERS]" separated by commas. [MODIFIERS] will be "PRIMARY
          KEY NOT NULL" if the column is a primary key, and nothing otherwise.
         :rtype: str
@@ -527,21 +632,24 @@ class DatabaseTable(ABC):
         # and get them from the class instance. Require that both are either given or taken from the instance.
         none_inputs = [x is None for x in (columns, primary_keys)]
         if not all_or_none(none_inputs):
-            raise TypeError('Give both or neither of columns and primary_keys')
+            raise TypeError('Give all or none of columns, primary_keys, and modifiers')
         elif all(none_inputs):
             # If both are omitted, get them from the instance.
             try:
                 columns = self._columns
                 primary_keys = self._primary_keys
+                modifiers = self._modifiers
             except AttributeError:
                 raise RuntimeError('Tried to call _format_column_names_types without arguments before the instance '
                                    '_columns and _primary_keys attributes are set')
 
         column_names = []
         for k, v in columns.items():
-            col_def = '{} {}'.format(k, v)
+            col_def = '{} {}'.format(k, v.upper())
             if k in primary_keys:
                 col_def += ' PRIMARY KEY NOT NULL'
+            if k in modifiers:
+                col_def += ' ' + modifiers[k].upper()
             column_names.append(col_def)
 
         return ', '.join(column_names)
