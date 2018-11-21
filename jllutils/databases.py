@@ -6,6 +6,7 @@ from abc import ABC
 from datetime import datetime as dtime
 import re
 import sqlite3
+import sys
 
 from numpy import number as npnumber, signedinteger as npint, bool_ as npbool, issubdtype
 
@@ -424,9 +425,18 @@ class DatabaseTable(ABC):
 
         sql_command = sql_command.format(table=self.table_name, **format_vals)
         if values is None:
-            cursor = self.connection.cursor().execute(sql_command)
+            try:
+                cursor = self.connection.cursor().execute(sql_command)
+            except sqlite3.OperationalError as err:
+                msg = err.args[0] + '\nSQL command was "{cmd}"'.format(cmd=sql_command)
+                raise sqlite3.OperationalError(msg) from None
+
         else:
-            cursor = self.connection.cursor().execute(sql_command, values)
+            try:
+                cursor = self.connection.cursor().execute(sql_command, values)
+            except sqlite3.OperationalError as err:
+                msg = err.args[0] + '\nSQL command was "{cmd}" with values = {vals}'.format(cmd=sql_command, vals=values)
+                raise sqlite3.OperationalError(msg) from None
 
         if self._autocommit:
             # Not sure if this will cause a problem with commands that don't actually change anything
