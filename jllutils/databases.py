@@ -117,7 +117,7 @@ def check_bool(value, name):
 
     :raises TypeError: if the value is not a bool
     """
-    if not issubdtype(value, npbool):
+    if not issubdtype(type(value), npbool):
         raise TypeError('{} must be a bool'.format(name))
     else:
         return bool(value)
@@ -424,19 +424,20 @@ class DatabaseTable(ABC):
             raise TypeError('values must be a tuple or dict')
 
         sql_command = sql_command.format(table=self.table_name, **format_vals)
+        sql_errors_to_catch = (sqlite3.OperationalError, sqlite3.IntegrityError)
         if values is None:
             try:
                 cursor = self.connection.cursor().execute(sql_command)
-            except sqlite3.OperationalError as err:
+            except sql_errors_to_catch as err:
                 msg = err.args[0] + '\nSQL command was "{cmd}"'.format(cmd=sql_command)
-                raise sqlite3.OperationalError(msg) from None
+                raise err.__class__(msg) from None
 
         else:
             try:
                 cursor = self.connection.cursor().execute(sql_command, values)
-            except sqlite3.OperationalError as err:
+            except sql_errors_to_catch as err:
                 msg = err.args[0] + '\nSQL command was "{cmd}" with values = {vals}'.format(cmd=sql_command, vals=values)
-                raise sqlite3.OperationalError(msg) from None
+                raise err.__class__(msg) from None
 
         if self._autocommit:
             # Not sure if this will cause a problem with commands that don't actually change anything
