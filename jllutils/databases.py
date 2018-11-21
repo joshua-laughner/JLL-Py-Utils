@@ -359,8 +359,11 @@ class DatabaseTable(ABC):
             columns_to_fetch = self.columns.keys()
 
         where_crit_str = self._format_where_crit_string(identifying_values.keys())
-        cursor = self.sql('SELECT {columns} FROM {table} WHERE {crit}', values=identifying_values,
-                          columns=', '.join(columns_to_fetch), crit=where_crit_str)
+        if len(identifying_values) > 0:
+            cursor = self.sql('SELECT {columns} FROM {table} WHERE {crit};', values=identifying_values,
+                              columns=', '.join(columns_to_fetch), crit=where_crit_str)
+        else:
+            cursor = self.sql('SELECT {columns} FROM {table};', columns=', '.join(columns_to_fetch))
 
         row_dicts = []
         for row in cursor:
