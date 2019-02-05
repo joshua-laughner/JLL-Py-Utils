@@ -424,7 +424,7 @@ def date_mean(datetimes, axis=None, reduce_to_scalar=True):
     :rtype: :class:`datetime.datetime` or list or array of such
     """
     if isinstance(datetimes, np.ndarray):
-        timestamps = np.zeros_like(datetimes, dtype=np.float)
+        timestamps = np.zeros(datetimes.shape, dtype=np.float)
 
         for idx, val in np.ndenumerate(datetimes):
             timestamps[idx] = val.timestamp()
