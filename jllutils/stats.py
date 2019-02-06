@@ -479,7 +479,7 @@ def york_linear_fit(x, std_x, y, std_y, max_iter=100, nboot=10):
     :type max_iter: int
 
     :param nboot: number of bootstrap samplings to do. Not implemented currently.
-    :type int:
+    :type nboot: int
 
     :return: dictionary containing the keys "slope", "yint", "slope_err", and "yint_err".
     :rtype: dict

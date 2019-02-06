@@ -355,11 +355,6 @@ def eom_day(date_in):
     :param date_in: the date to find the end-of-month day for
     :type date_in: :class:`datetime.date`, :class:`datetime.datetime`, or :class:`datetime`.
 
-    :param hms: optional, if ``False`` (default) then hours and smaller are unchanged. If ``True``, then the datetime
-     is set to the very first microsecond of the given month. If ``date_in`` is a :class:`datetime.date`, then this
-     parameter has no effect.
-    :type hms: bool
-
     :return: the last day of the month
     :rtype: int
     """
