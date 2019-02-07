@@ -1,8 +1,8 @@
 """
 Helper methods for working with numpy arrays and creating test arrays.
 """
-
-
+from __future__ import print_function, absolute_import, division, unicode_literals
+import copy
 import numpy as np
 from numpy import ma
 
