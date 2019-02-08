@@ -39,7 +39,7 @@ def find_block(a, axis=0, ignore_masked=True, as_slice=False, block_value=None):
     if block_value is not None:
         if not isinstance(block_value, np.ndarray):
             block_value = np.array(block_value)
-        elif isinstance(block_value, np.ma.masked_array):
+        elif isinstance(block_value, np.ma.masked_array) and not isinstance(row.mask, np.bool_):
             block_mask = block_value.mask
             if ignore_masked:
                 # If ignoring masked values, we cut down the value the block is supposed to equal just like we cut
@@ -55,7 +55,7 @@ def find_block(a, axis=0, ignore_masked=True, as_slice=False, block_value=None):
     block_start = None
 
     for idx, row in enumerate(a):
-        if isinstance(a, np.ma.masked_array):
+        if isinstance(row, np.ma.masked_array) and not isinstance(row.mask, np.bool_):
             mask = row.mask
             if ignore_masked:
                 # Ignoring masked values: masked values do not contribute one way or another to determining if two rows
