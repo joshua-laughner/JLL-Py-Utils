@@ -324,6 +324,19 @@ class DatabaseTable(ABC):
         command_str = 'INSERT INTO {table}({columns}) VALUES({keys})'
         self.sql(command_str, values=row_dict, columns=columns, keys=keys)
 
+    def update_row(self, identifying_values, new_values):
+        if any(k in new_values.keys() for k in identifying_values):
+            raise ValueError('A column used in identifying values cannot be in new_values as well')
+
+        where_crit_str = self._format_where_crit_string(identifying_values.keys())
+        set_str = self.__format_set_string(new_values.keys())
+
+        vals = dict()
+        vals.update(identifying_values)
+        vals.update(new_values)
+
+        self.sql('UPDATE {table} SET {set} WHERE {crit}', values=vals, set=set_str, crit=where_crit_str)
+
     def fetch_rows_as_dicts(self, identifying_values, columns_to_fetch='*', single_row=False):
         """
         Retrieve certain rows from the database, converting them to dictionaries
@@ -710,6 +723,10 @@ class DatabaseTable(ABC):
         :return: a string with the format "key1 = :key1 AND key2 = :key2 AND ...".
         """
         return ' AND '.join(['{k} = :{k}'.format(k=k) for k in keys])
+
+    @staticmethod
+    def __format_set_string(keys):
+        return ', '.join('{k} = :{k}'.format(k=k) for k in keys)
 
 
 class SQLiteDatabaseTable(DatabaseTable):
