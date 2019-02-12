@@ -325,6 +325,20 @@ class DatabaseTable(ABC):
         self.sql(command_str, values=row_dict, columns=columns, keys=keys)
 
     def update_row(self, identifying_values, new_values):
+        """
+        Update a row in the database.
+
+        :param identifying_values: a dictionary with keys specifying the column names and values specifying
+         the value that column must have, i.e. this will be expanded into a "WHERE key1 = value1 AND key2 = value2 ..."
+         query. The values will be converted to SQL types if necessary/possible.
+        :type identifying_values: dict
+
+        :param new_values: a dictionary specifying the new values to insert into the row; the keys give the column
+         names. Cannot share any keys with the ``identifying_values`` dict.
+        :type new_values: dict
+
+        :return: None
+        """
         if any(k in new_values.keys() for k in identifying_values):
             raise ValueError('A column used in identifying values cannot be in new_values as well')
 

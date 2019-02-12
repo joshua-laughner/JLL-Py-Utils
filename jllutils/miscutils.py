@@ -21,16 +21,77 @@ def find_block(a, axis=0, ignore_masked=True, as_slice=False, block_value=None):
     """
     Find blocks of contiguous values along a given dimension of a.
 
-    This function will identify the index ranges for which there are contiguous values in a. For example, if a was::
+    This function will identify the index ranges for which there are contiguous values in a and the values themselves.
+    For example, for::
 
         a = np.array([0, 1, 1, 1, 2, 3, 3, 4, 5])
 
-    then ``find_block(a)`` would return
-    :param a:
-    :param axis:
-    :param ignore_masked:
-    :param as_slice:
-    :return:
+    then ``find_block(a)`` would return ``[(1, 4), (5, 7)]`` and ``[1, 3]``. Note that the index ranges follow the
+    Python convention that the last index is exclusive, so that ``a[1:4]`` would give ``[1, 1, 1]``.
+
+    If ``a`` is a 2D or higher array, then the whole slice ``a[i+1, :]`` must equal ``a[i, :]`` to be considered
+    contiguous. For::
+
+        a = [[1, 2, 3],
+             [1, 2, 3],
+             [1, 2, 4]]
+
+    the first two rows only would be considered a contiguous block because all their values are identical, while the
+    third row is not. Finally, if ``a`` is a masked array, then by default the masked *values* are ignored but the masks
+    themselves must be the same. With the same 2D ``a`` as above, if all the values in the last column were masked:
+
+        a = [[1, 2, --],
+             [1, 2, --],
+             [1, 2, --]]
+
+    then all three rows would be considered a block, but if only the bottom right element was masked:
+
+        a = [[1, 2,  3],
+             [1, 2,  3],
+             [1, 2, --]]
+
+    then the third row would *not* be part of the block, because even though its unmasked values are identical to the
+    corresponding values in the previous row, the mask is not.
+
+    :param a: the array or array-like object to find contiguous values in. Can be given as anything that `numpy.array`
+     can turn into a proper array.
+    :type a: array-like
+
+    :param axis: which axis of ``a`` to operate along.
+    :type axis: int
+
+    :param ignore_masked: setting this to ``False`` modifies the behavior described above regarding masked arrays. When
+     this is ``False``, then the underlying values are considered for equality. In the example where the entire last
+     column of ``a`` was masked, setting ``ignore_masked = True`` would cause the third row to be excluded from the
+     block again, because the values under the mask are compared.
+    :type ignore_masked: bool
+
+    :param as_slice: set to ``True`` to return the indices as slice instances instead; these can be used directly in
+     ``a`` retrieve the contiguous blocks.
+    :type as_slice: bool
+
+    :param block_value: if given, this will only look for blocks matching this value. In the first example where ``a``
+     was a vector, setting this to ``1`` would only return the indices (1, 4) since only the first block has values of
+     1. If ``a`` if multidimensional, keep in mind that the explicit check is that ``np.all(a[i,:] == block_value)``,
+     so this may be a scalar or an array, as long as each slice passes that test. If this is a masked array, then the
+     mask of each slice of ``a`` must also match its mask.
+
+    .. note::
+
+       If ``block_value`` is a masked array and ``a`` is not, then most likely nothing will match. However, you should
+       not rely on this behavior, since there may be some corner cases where this is not true, particularly if
+       ``block_value`` and ``a`` are boolean arrays.
+
+    :type block_value: array-like
+
+    :return: A list of block start/end indices as two-element tuples (or slices, if ``as_slice = True``) and a list of
+     the values of each block.
+    :rtype: list(tuple(int)) and list(numpy.ndarray)
+
+    .. note::
+
+       Even if you pass ``a`` in as something other than a numpy array (e.g. a list of lists) the values returned will
+       be numpy arrays. This is due to how ``a`` is handled internally.
     """
     if not isinstance(a, np.ndarray):
         a = np.array(a)
@@ -39,7 +100,7 @@ def find_block(a, axis=0, ignore_masked=True, as_slice=False, block_value=None):
     if block_value is not None:
         if not isinstance(block_value, np.ndarray):
             block_value = np.array(block_value)
-        elif isinstance(block_value, np.ma.masked_array) and not isinstance(row.mask, np.bool_):
+        elif isinstance(block_value, np.ma.masked_array): # and not isinstance(row.mask, np.bool_): # TODO: figure out why I'd needed the extra isinstance check here and for the rows
             block_mask = block_value.mask
             if ignore_masked:
                 # If ignoring masked values, we cut down the value the block is supposed to equal just like we cut
@@ -55,7 +116,7 @@ def find_block(a, axis=0, ignore_masked=True, as_slice=False, block_value=None):
     block_start = None
 
     for idx, row in enumerate(a):
-        if isinstance(row, np.ma.masked_array) and not isinstance(row.mask, np.bool_):
+        if isinstance(row, np.ma.masked_array): # and not isinstance(row.mask, np.bool_):
             mask = row.mask
             if ignore_masked:
                 # Ignoring masked values: masked values do not contribute one way or another to determining if two rows
