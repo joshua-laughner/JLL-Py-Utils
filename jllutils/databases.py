@@ -205,9 +205,27 @@ class DatabaseTable(ABC):
      Default is ``False``. Use with great caution!
     :type delete_existing_table: bool
 
+    :param pragmas: a dictionary listing SQLite "PRAGMA" statements to execute immediately after the connection is
+     established. The keys should be the pragma names, the values the values they should be assigned. For example,
+     ``pragmas = {'foreign_keys': 'ON'}`` would execute ``PRAGMA foreign_keys = ON;`` immediately after the connection
+     is established. If this argument is not given, default pragmas defined in the class attribute ``default_pragmas``
+     will be used. Subclasses can override this attribute to change their default pragmas. To execute no pragmas,
+     pass an empty dict.
+    :type pragmas: dict
+
+    :param foreign_keys: a dictionary listing what columns are foreign keys. The keys of the dictionary are the columns
+     in this table, the values are the foreign table and column in 'table(column)' format. Example:
+     ``foreign_keys = {'file_id': 'files(uid)'}`` would be equivalent to SQL: ``FOREIGN KEY(file_id) REFERENCES files(uid)``
+     Note that this may require ``{'foreign_keys': 'ON'}`` to be in your ``pragmas``; however, that is present in the
+     default pragmas for this class.
+    :type foreign_keys:
+
     :param verbose: controls verbosity of this class. Currently not relevant.
     :type verbose: int
     """
+
+    default_pragmas = {'foreign_keys': 'ON'}
+
     @property
     def connection(self):
         """
@@ -240,17 +258,20 @@ class DatabaseTable(ABC):
         return self._primary_keys
 
     def __init__(self, connection, table, columns=None, primary_key_cols=None, modifiers=None,
-                 autocommit=False, commit_on_close=True, delete_existing_table=False, verbose=0):
+                 autocommit=False, commit_on_close=True, delete_existing_table=False, pragmas=None, foreign_keys=None,
+                 verbose=0):
         """
         See class help.
         """
         self._connection = connection
+        self._setup_pragmas(pragmas)
         self._table_name = table
         self._autocommit = autocommit
         self._commit_on_close = commit_on_close
         self._verbose = verbose
 
         self._columns, self._primary_keys, self._modifiers = self.setup_tables(columns, primary_key_cols, modifiers,
+                                                                               foreign_keys,
                                                                                delete_existing=delete_existing_table)
 
     def __enter__(self):
@@ -485,7 +506,7 @@ class DatabaseTable(ABC):
     #################
     # Setup methods #
     #################
-    def setup_tables(self, columns, primary_keys, modifiers, delete_existing=False):
+    def setup_tables(self, columns, primary_keys, modifiers, foreign_keys=None, delete_existing=False):
         """
         A method that initializes any required tables.
 
@@ -524,8 +545,12 @@ class DatabaseTable(ABC):
 
         # If there's no existing table, _check_columns has made sure that the columns are given
         if not table_exists:
-            command_str = 'CREATE TABLE IF NOT EXISTS {table} ({columns});'
-            self.sql(command_str, columns=self._format_column_names_types(columns, primary_keys, modifiers))
+            if foreign_keys is not None:
+                command_str = 'CREATE TABLE IF NOT EXISTS {table} ({columns});'
+            else:
+                command_str = 'CREATE TABLE IF NOT EXISTS {table} ({columns}, {fkeys});'
+            self.sql(command_str, columns=self._format_column_names_types(columns, primary_keys, modifiers),
+                     fkeys=self._format_foreign_keys(foreign_keys))
 
         # Check that all the columns are present
         table_columns, table_keys, table_modifiers = self._get_table_columns()
@@ -553,6 +578,13 @@ class DatabaseTable(ABC):
                 raise SQLSetupError('Given modifiers differ from those in the existing table')
 
         return columns, primary_keys, modifiers
+
+    def _setup_pragmas(self, pragmas):
+        if pragmas is None:
+            pragmas = self.default_pragmas
+
+        for k, v in pragmas.items():
+            self.connection.execute('PRAGMA {} = {};'.format(k, v))
 
     ############################
     # Table formatting methods #
@@ -694,6 +726,17 @@ class DatabaseTable(ABC):
             column_names.append(col_def)
 
         return ', '.join(column_names)
+
+    @staticmethod
+    def _format_foreign_keys(foreign_keys):
+        if foreign_keys is None:
+            return None
+
+        fks = []
+        for k, v in foreign_keys.items():
+            fks.append('FOREIGN KEY({}) REFERENCES {}'.format(k, v))
+
+        return ', '.join(fks)
 
     def _check_row_dict(self, row_dict):
         """
