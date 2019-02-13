@@ -295,6 +295,8 @@ def _rolling_input_helper(A, window, edges, force_centered):
     extend_width = int(window/2)
     if edges == 'zeros':
         A = np.concatenate([np.zeros((extend_width,), dtype=A.dtype), A, np.zeros((extend_width,), dtype=A.dtype)])
+    elif edges == 'nans':
+        A = np.concatenate([np.full((extend_width,), np.nan, dtype=A.dtype), A, np.full((extend_width,), np.nan, dtype=A.dtype)])
     elif edges == 'extend':
         A = np.concatenate([np.repeat(A[0], extend_width), A, np.repeat(A[-1], extend_width)])
     else:
@@ -359,7 +361,8 @@ def rolling_nanmean(A, window, edges='zeros', force_centered=False, window_behav
 
     if window >= A.size and window_behavior == 'limited':
         # This mimics the behavior of the matlab `runmean` function used in the original OCO validation code. In that
-        # function, if the window was larger than the array given, it returned an array the same size as
+        # function, if the window was larger than the array given, it returned an array the same size as A filled with
+        # the mean of A
         return np.repeat(np.nanmean(A), A.size)
 
     A = rolling_op(np.nanmean, A, window, edges=edges, force_centered=force_centered)
@@ -402,6 +405,7 @@ def rolling_op(op, A, window, edges='zeros', force_centered=False):
         * 'zeros' (default) prepends and appends 0s to A in order to give enough points for the averaging windows near
           the edge of the array. So for ``A = [1, 2, 3, 4, 5]``, with a window of 3, the first window would average
           ``[0, 1, 2]`` and the last one ``[4, 5, 0]``.
+        * 'nans' prepends and appends NaNs to A.
         * 'extend' repeats the first and last values instead of using zeros, so in the above example, the first window
           would be ``[1, 1, 2]`` and the last one ``[4, 5, 5]``.
     :type edges: str
