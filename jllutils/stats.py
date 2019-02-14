@@ -352,7 +352,9 @@ def rolling_nanmean(A, window, edges='zeros', force_centered=False, window_behav
     If A is not a masked array (so is just a regular :class:`numpy.ndarray`) it is not changed before doing the nanmean.
 
     :param window_behavior: optional, changes what happens when the window size is greater than the size of A. The
-     default behavior (given by the string `'default'`) is to
+     default behavior (given by the string `'default'`) is to extend the array as needed following the ``edges`` keyword
+     and do the rolling mean as always. 'limited' instead mimics the behavior of the ``runmean`` function in Matlab that
+     returns an array the same size as A filled with nanmean(A) if the window width exceeds the length of A.
 
     See :func:`rolling_op` for documentation of the other parameters.
     """
