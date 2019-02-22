@@ -5,6 +5,9 @@ Functions for common statistical methods
 
 import numpy as np
 from numpy import ma
+import re
+import scipy.stats as st
+from statsmodels import api as sm, tools as smtools
 
 
 class ConvergenceError(Exception):
@@ -24,10 +27,18 @@ class PolyFitModel(object):
         as well. The model can be chosen with the ``model`` keyword. Current options are:
 
             * 'york' - use :func:`york_linear_fit` (from this module).
+            * 'y-resid' or 'y_resid' - do least-squares fitting of a straight line to the data, without weighting.
+            * 'y-resid-n' or 'y_resid_n' - do least-squares fitting of a polynomial with degree n to the data, without
+              weighting.
+            * 'ols' - do ordinary least-squares fitting of the data with :mod:`statsmodels`. Unlike y-resid, this
+              includes more information in the ``results`` property, like p-values.
+            * 'ols0' - do ordinary least-squares fitting with :mod:`statsmodels`, with no intercept.
             * any function that takes a minimum of four arguments (``x``, ``y``, ``xerr``, and ``yerr``, where ``xerr`` and
-              ``yerr`` are the error/uncertainty in ``x`` and ``y``) and returns two iterables (list, tuple, 1D numpy array,
-              etc.), the polynomial coefficients and their errors, starting from the x**0 term. The values in the
-              coefficient error array may be None if the fit does not compute errors in its coefficients.
+              ``yerr`` are the error/uncertainty in ``x`` and ``y``) and returns three values:
+                - the polynomial coefficients as a 1D array-like object, starting from the x**0 term
+                - the errors in the coefficients, also as a 1D array-like object. If errors are not computed, they
+                  should be NaNs.
+                - any object containing more detail about the fitting result, e.g. a dictionary or custom class
 
         If your chosen model function has additional keyword arguments, you can pass them as a dict with the
         ``model_opts`` input.
@@ -99,6 +110,14 @@ class PolyFitModel(object):
         return self.get_any_coeff(1)
 
     @property
+    def results(self):
+        """
+        An object containing all the results from the fitting procedure. Will be unique to each fitting method.
+        :return:
+        """
+        return self._results
+
+    @property
     def data(self):
         """
         The data used to create the fit
@@ -112,8 +131,8 @@ class PolyFitModel(object):
         # Coerce input data to floats. Check them at the same time
         x = self._fix_in_type(x, 'x')
         y = self._fix_in_type(y, 'y')
-        xerr = self._fix_in_type(xerr, 'xerr')
-        yerr = self._fix_in_type(yerr, 'yerr')
+        xerr = self._fix_in_type(xerr, 'xerr', allow_none=True)
+        yerr = self._fix_in_type(yerr, 'yerr', allow_none=True)
 
         # Store data
         self._fit_fxn = self._get_fit_fxn(model)
@@ -125,9 +144,10 @@ class PolyFitModel(object):
             raise TypeError('Model options must be given as a dictionary')
 
         # Do the fit
-        coeffs, coeff_errors = self._fit_fxn(x, y, xerr, yerr, **self._model_opts)
+        coeffs, coeff_errors, results = self._fit_fxn(x, y, xerr, yerr, **self._model_opts)
         self._coeffs = self._check_coeff_type(coeffs)
         self._coeff_errors = self._check_coeff_type(coeff_errors)
+        self._results = results
 
     def __str__(self):
         """
@@ -141,7 +161,7 @@ class PolyFitModel(object):
             if power > 0:
                 s += ' + '
 
-            if e is not None:
+            if e is not None and not np.isnan(e):
                 s += '({:.3g} +/- {:.3g})'.format(c, e)
             else:
                 s += '{:.3g}'.format(c)
@@ -162,7 +182,7 @@ class PolyFitModel(object):
         return self.predict(x)
 
     @staticmethod
-    def _fix_in_type(input, name='input'):
+    def _fix_in_type(input, name='input', allow_none=False):
         """
         Correct the type of any data input to this model.
 
@@ -178,6 +198,8 @@ class PolyFitModel(object):
 
         :raises: TypeError if the input is of an invalid type
         """
+        if allow_none and input is None:
+            return None
         if not isinstance(input, np.ndarray) or input.ndim != 1:
             raise TypeError('{} must be a 1D numpy array'.format(name))
         return input.astype(np.float)
@@ -225,19 +247,46 @@ class PolyFitModel(object):
 
         # Define wrapper functions here. Each one must accept 4 inputs (x, y, xerr, yerr) and will be passed any
         # additional keywords received as the ``model_opts`` parameter in __init__. Each must return a vector of
-        # polynomial coefficients and their errors.
+        # polynomial coefficients, their errors, and a results object. That object may be of any type.
         def york_fit(x, y, xerr, yerr, **opts):
             if xerr is None or yerr is None:
                 raise ValueError('xerr and yerr are required for the "york" fitting method')
             result = york_linear_fit(x, xerr, y, yerr, **opts)
             poly = np.array([result['yint'], result['slope']])
             poly_err = np.array([result['yint_err'], result['slope_err']])
-            return poly, poly_err
+            return poly, poly_err, {'coef': poly, 'coef_err': poly_err}
+
+        def y_resid(x, y, deg):
+            # Must call the convert() method to get the right coefficients - by default, the polynomial is scaled for
+            # numerical stability, convert() unscales it
+            poly = np.polynomial.polynomial.Polynomial.fit(x, y, deg).convert()
+            coeffs = poly.coef  # these are in the proper order (x**0 first)
+            coeffs_err = np.full(coeffs.shape, np.nan)
+            return coeffs, coeffs_err, {'coef': coeffs, 'coef_err': coeffs_err}
+
+        def ols(x, y, zero_int=False):
+            if not zero_int:
+                x = smtools.add_constant(x)
+
+            results = sm.OLS(y, x, hasconst=not zero_int).fit()
+            coeffs = results.params
+            coeffs_err = np.sqrt(np.diag(results.cov_params()))
+            return coeffs, coeffs_err, results
 
         if not isinstance(model, str):
             return model
         elif model.lower() == 'york':
             return york_fit
+        elif re.match(r'y[\-_]resid', model, re.IGNORECASE):
+            # Allow the user to specify y-resid or y_resid for the typical linear fit, but also y-resid2, y-resid3, etc.
+            # for higher-order fits.
+            order = re.search(r'\d+$', model)
+            order = 1 if order is None else int(order.group())
+            return lambda x, y, xerr, yerr, deg=order: y_resid(x, y, deg)
+        elif model.lower() == 'ols':
+            return lambda x, y, xerr, yerr, zint=False: ols(x, y, zero_int=zint)
+        elif model.lower() == 'ols0':
+            return lambda x, y, xerr, yerr, zint=True: ols(x, y, zero_int=zint)
 
     def predict(self, x):
         """
@@ -569,6 +618,18 @@ def york_linear_fit(x, std_x, y, std_y, max_iter=100, nboot=10):
     return results
 
 
+def r(y, x):
+    """
+    Calculate the Pearson's correlation coefficient
+
+    :param y: the y-values, i.e. dependent data
+    :param x: the x-values, i.e. independent data
+    :return: the r coefficient
+    """
+    corr = np.corrcoef(x, y)
+    return corr[0, 1]  # the off-diagonal terms of the correlation matrix give the correlation coefficient
+
+
 def r2(y_data, y_pred=None, x=None, model=None):
     """
     Calculate an R2 value for a fit.
@@ -611,3 +672,61 @@ def r2(y_data, y_pred=None, x=None, model=None):
     ss_resid = ma.sum((y_pred - y_data)**2.0)
     ss_var = ma.sum((y_data - ma.mean(y_data))**2.0)
     return 1.0 - ss_resid / ss_var
+
+
+def fisher_z_test(x=None, y=None, p=0.05, two_tailed=True):
+    """
+    Test if a regression is significant using Fisher z-transformation of the Pearson correlation
+
+    :param x: the x-values (independent data)
+    :param y: the y-values (dependent data)
+    :param p: the p-value, i.e. the critical probability that the regression is not significant.
+    :param two_tailed: whether to treat the p-value as two-tailed, i.e. the regression may be positive or negative
+     (either side of the null hypothesis) or can only be above or below.
+    :return: ``True`` if the regression is significant, ``False`` otherwise.
+    """
+    def get_n(vec):
+        vec = np.ma.masked_invalid(vec)
+        return np.sum(~vec.mask)
+
+    # I was not able to find a clear answer as to exactly how to test that a Z-score indicates that a slope is
+    # significantly different from 0. What I typically found was things like this:
+    #
+    #   https://www.statisticssolutions.com/comparing-correlation-coefficients/
+    #
+    # that tell how to compare two correlation coefficients. As a result, I decided to take essentially a brute-force
+    # approach. When you're testing that a correlation is significant, my understanding is that you're really asking
+    # if the predictor, x, gives more information about the value of y than just the mean of y. If the correlation is
+    # not significantly different from zero, then the correlation of y with x should be indistinguishable from the
+    # correlation of y with its own mean (or really any constant).
+    #
+    # We test this by calculating z-scores for both the actual correlation of x and y and the correlation of y and its
+    # mean
+    rval = r(y, x)
+    rval_null = r(np.full_like(y, np.mean(y).item()), x)
+
+    z = np.arctanh(rval)
+    znull = np.arctanh(rval_null)
+
+    # From the website above, the formula for the difference between the z-scores is this. A characteristic of Fisher
+    # z-scores is that they always have standard errors that tend towards 1/(n-3). Since both our z-scores come from
+    # vectors with the same n, we can simplify the denominator slightly. from 1/(n1-3) + 1/(n2-3) to 2/(n-3).
+    n = min(get_n(x), get_n(y))
+    zobs = (z - znull) / np.sqrt(2*(1.0/(n-3)))
+
+    # A Fisher z-transformation takes a r value, which is not necessarily normal, and transforms it into a normally
+    # distributed quantity. The PPF i.e. percent-point function i.e. quantile function, is the inverse of the cumulative
+    # distribution function. The CDF gives the total probability that a random draw from a given distribution lies
+    # between negative infinity and the input value; so the PPF takes in a probability, p, and outputs a value that a
+    # random draw from the distribution has probability p of being less than.
+    #
+    # So st.norm.ppf(0.95) = 1.64485, that means a normal distribution has a 95% chance of yielding a value <= 1.64485
+    # and a 5% chance of a value > 1.64485. In the two tailed case, we actually want the value v such that a draw d has
+    # the given probability of being -v <= d <= v, so we need to half the probability on the positive side.
+    if two_tailed:
+        p /= 2
+    zcrit = st.norm.ppf(1.0 - p)
+
+    # If our observed z value for the difference between the actual regression and the mean exceeds the critical value,
+    # that means that there is a < p chance that they are the same.
+    return np.abs(zobs) > zcrit

@@ -10,8 +10,6 @@ from sys import float_info
 
 import numpy as np
 
-import pdb
-
 
 class SmartDatetime(base_datetime.datetime):
     """
@@ -291,8 +289,6 @@ class timedelta(object):
         return timedelta(months=-self._months, days=-self._days, seconds=-self._seconds, microseconds=-self._microseconds)
 
 
-
-
 def add_months(date_in, months=1):
     """
     Add a number of months to a given date.
@@ -437,3 +433,20 @@ def date_mean(datetimes, axis=None, reduce_to_scalar=True):
             result = [result]
 
     return result
+
+
+def fractional_doy(date_in):
+    """
+    Compute the fractional day-of-year, given a date.
+
+    The fractional day of year is defined as the number of days since midnight, Jan 1 of that year.
+
+    :param date_in: the date/time to compute the fractional day-of-year of.
+    :type date_in: any datetime-like object
+
+    :return: the fractional day-of-year
+    :rtype: float
+    """
+    zero_date = base_datetime.datetime(date_in.year, 1, 1, tzinfo=date_in.tzinfo)
+    n_seconds = (date_in - zero_date).total_seconds()
+    return float(n_seconds) / (24*3600)
