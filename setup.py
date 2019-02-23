@@ -4,6 +4,7 @@ setup(
     name='JLLUtils',
     version='0.1',
     packages=find_packages(),
+    install_requires=['matplotlib','numpy','pandas','scipy','statsmodels'],
     url='https://github.com/joshua-laughner/JLL-Py-Utils',
     license='',
     author='Joshua Laughner',
