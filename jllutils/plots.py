@@ -6,12 +6,48 @@ import matplotlib as mpl
 from matplotlib import pyplot as plt
 import numpy as np
 
+from .stats import hist2d
 
 class IncompatibleOptions(Exception):
     """
     Error to use when incompatible options are passed
     """
     pass
+
+
+def create_twin_axes_with_color(twin='x', color2=None, color1=None):
+    """
+    Create twinned axes where the axes are colored
+
+    :param twin: string "x" or "y" indicating which axis is common to the two axes
+    :param color2:
+    :param color1:
+    :return:
+    """
+    fig, ax1 = plt.subplots()
+    if twin == 'x':
+        ax2 = ax1.twinx()
+        spines = [ax1.spines['left'], ax2.spines['right']]
+        tick_ax = 'y'
+        labels = [ax1.yaxis.label, ax2.yaxis.label]
+    elif twin == 'y':
+        ax2 = ax1.twiny()
+        spines = [ax1.spines['bottom'], ax2.spines['top']]
+        tick_ax = 'x'
+        labels = [ax1.xaxis.label, ax2.xaxis.label]
+    else:
+        raise ValueError('twin must be "x" or "y"')
+
+    if color1:
+        spines[0].set_color(color1)
+        ax1.tick_params(axis=tick_ax, colors=color1)
+        labels[0].set_color(color1)
+    if color2:
+        spines[1].set_color(color2)
+        ax2.tick_params(axis=tick_ax, colors=color2)
+        labels[1].set_color(color2)
+
+    return fig, ax1, ax2
 
 
 def plot_xy_error_bars(ax, x, x_error, y, y_error, **style):
@@ -297,3 +333,148 @@ def _is_color_tuple(t):
         return False
     else:
         return True
+
+
+def heatmap(x, y, xbins=10, ybins=10, plotfxn=plt.pcolormesh, zero_white=True, log=False, **kwargs):
+    """
+    Plot a 2D heatmap indicating the frequency of values occurring in x & y bins
+
+    :param x: the x data. See :func:`hist2d` for how this may be specified.
+    :type x: :class:`numpy.ndarray`
+
+    :param y: the y data. See :func:`hist2d` for how this may be specified.
+    :type y: :class:`numpy.ndarray`
+
+    :param xbins: x bin specification. See :func:`hist2d` for how this may be specified.
+    :type xbins: int or :class:`numpy.ndarray`
+
+    :param ybins: y bin specification. See :func:`hist2d` for how this may be specified.
+    :type ybins: int or :class:`numpy.ndarray`
+
+    :param plotfxn: the function to use to plot the heatmap. Must accept x and y coordinates as vectors and the number
+     of counts as a ny-by-nx array (note that the dimensions are reversed!) as the first three inputs. It will first
+     try plotting with the x and y coordinates as the bin edges (i.e nx+1 and ny+1 in length); if this raises a
+     ``TypeError`` then it will reduce x and y to nx and ny by calculating bin centers. This allows either a
+     pcolor/pcolormesh to be used without cutting off the last row and column of the counts or a countour plot.
+
+    :param zero_white: if ``True`` (default), then zero values are set to NaNs in the count array before plotting. This
+     will make them white in most pseudo-color plots.
+    :type zero_white: bool
+
+    :param log: set to ``True`` to plot the log base 10 of the counts, rather than the linear value.
+    :type log: bool
+
+    :param **kwargs: additional keywords to be passed to the plotting function.
+
+    :return: all return values from the plotting function.
+    """
+    counts, xbins, ybins = hist2d(x=x, y=y, xbins=xbins, ybins=ybins)
+    counts = counts.astype(np.float)
+    if zero_white:
+        counts[np.isclose(counts, 0)] = np.nan
+    if log:
+        counts[counts <= 0] = np.nan
+        counts = np.log10(counts)
+
+    # Keeping the bins with an extra element compared to counts
+    try:
+        return plotfxn(xbins, ybins, counts.T, **kwargs)
+    except TypeError:
+        xbins = 0.5*(xbins[:-1] + xbins[1:])
+        ybins = 0.5*(ybins[:-1] + ybins[1:])
+        return plotfxn(xbins, ybins, counts.T, **kwargs)
+
+
+def x_log_ticks(ax, base=10, fmt='adapt'):
+    """
+    Set ticks on an x-axis assuming the current values are of a logarithm
+
+    The ticks will be set to integer powers of the base.
+
+    :param cb: the colorbar instance
+    :param base: the logarithm base
+    :param fmt: how to format the tick labels.
+
+        * "adapt" (default) means that one of the other two will be chosen based on the magnitude of the tick labels.
+        * "simple" means that that the labels will be straight numbers, i.e. 10, 100, 0.1
+        * "exp" means that the labels will be written as 10^x
+
+    :return: None
+    """
+    limits = ax.get_xlim()
+    _log_ticks(limits, ax.set_xticks, ax.set_xticklabels, base=base, fmt=fmt)
+
+
+def y_log_ticks(ax, base=10, fmt='adapt'):
+    """
+    Set ticks on a y-axis assuming the current values are of a logarithm
+
+    The ticks will be set to integer powers of the base.
+
+    :param cb: the colorbar instance
+    :param base: the logarithm base
+    :param fmt: how to format the tick labels.
+
+        * "adapt" (default) means that one of the other two will be chosen based on the magnitude of the tick labels.
+        * "simple" means that that the labels will be straight numbers, i.e. 10, 100, 0.1
+        * "exp" means that the labels will be written as 10^x
+
+    :return: None
+    """
+    limits = ax.get_ylim()
+    _log_ticks(limits, ax.set_yticks, ax.set_yticklabels, base=base, fmt=fmt)
+
+
+def cb_log_ticks(cb, base=10, fmt='adapt'):
+    """
+    Set ticks on a colorbar assuming the current values are of a logarithm
+
+    The ticks will be set to integer powers of the base.
+
+    :param cb: the colorbar instance
+    :param base: the logarithm base
+    :param fmt: how to format the tick labels.
+
+        * "adapt" (default) means that one of the other two will be chosen based on the magnitude of the tick labels.
+        * "simple" means that that the labels will be straight numbers, i.e. 10, 100, 0.1
+        * "exp" means that the labels will be written as 10^x
+
+    :return: None
+    """
+    limits = cb.get_clim()
+    _log_ticks(limits, cb.set_ticks, cb.set_ticklabels, base=base, fmt=fmt)
+
+
+def _log_ticks(limits, tick_fxn, tick_label_fxn, base, fmt):
+    """
+
+    :param limits:
+    :param tick_fxn:
+    :param tick_label_fxn:
+    :param base:
+    :param fmt:
+    :return:
+    """
+    def format_log(exp):
+        if exp >= 0:
+            return '{}'.format(base ** int(exp))
+        else:
+            return '{:f}'.format(base ** exp)
+
+    ll = np.ceil(limits[0])
+    ul = np.floor(limits[1])
+    ticks = np.arange(ll, ul + 1)
+    if fmt == 'adapt':
+        if ll < -4 or ul > 5:
+            fmt = 'exp'
+        else:
+            fmt = 'simple'
+
+    if fmt == 'simple':
+        ticklabels = ['{}'.format(format_log(x)) for x in ticks]
+    elif fmt == 'exp':
+        ticklabels = ['${}^{{{:d}}}$'.format(base, int(x)) for x in ticks]
+    else:
+        raise ValueError('format "{}" not recognized'.format(fmt))
+    tick_fxn(ticks)
+    tick_label_fxn(ticklabels)

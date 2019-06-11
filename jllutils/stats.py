@@ -730,3 +730,50 @@ def fisher_z_test(x=None, y=None, p=0.05, two_tailed=True):
     # If our observed z value for the difference between the actual regression and the mean exceeds the critical value,
     # that means that there is a < p chance that they are the same.
     return np.abs(zobs) > zcrit
+
+
+def hist2d(x, y, xbins=10, ybins=10):
+    """
+
+    :param x: The x data. Assumed to be ungridded, i.e. every data point is specified in this array. May be any number
+     of dimensions.
+    :type x: :class:`numpy.ndarray`
+
+    :param y: The y data. Same rules as ``x``.
+    :type y: :class:`numpy.ndarray`
+
+    :param xbins: If given as an integer, specifies the number of bins to use in the x-dimension. The bins will be
+     linearly spaced. If given as a 1D array, then it is assumed to specify the bin edges (and thus has nbins + 1
+     values).
+    :type xbins: int or :class:`numpy.ndarray`
+
+    :param ybins: Specifies the bins for the y-dimension according to the same rules as ``xbins``.
+    :type ybins: int or :class:`numpy.ndarray`
+
+    :return: a 2D array of counts, the x bin edges, and the y bin edges.
+    :rtype: :class:`numpy.ndarray`, :class:`numpy.ndarray`, :class:`numpy.ndarray`.
+    """
+    def check_bins(coord, bins, name):
+        if np.ndim(bins) == 0:
+            # Expand the top bin just a little bit so we get the max point
+            bins = np.linspace(np.min(coord), np.max(coord)*1.0001, bins+1)
+        elif np.ndim(bins) != 1:
+            raise TypeError('{} must be a scalar integer or a 1D vector'.format(name))
+        elif np.any(np.diff(bins) < 0):
+            raise ValueError('{} must be monotonically increasing'.format(name))
+
+        return bins
+
+    xbins = check_bins(x, xbins, 'xbins')
+    ybins = check_bins(y, ybins, 'ybins')
+    nx = np.size(xbins) - 1
+    ny = np.size(ybins) - 1
+
+    counts = np.zeros([nx, ny], dtype=np.int)
+    for i in range(nx):
+        xx = (x >= xbins[i]) & (x < xbins[i+1])
+        for j in range(ny):
+            yy = (y >= ybins[j]) & (y < ybins[j+1])
+            counts[i, j] = np.sum(xx & yy)
+
+    return counts, xbins, ybins
