@@ -545,7 +545,7 @@ class DatabaseTable(ABC):
 
         # If there's no existing table, _check_columns has made sure that the columns are given
         if not table_exists:
-            if foreign_keys is not None:
+            if foreign_keys is None:
                 command_str = 'CREATE TABLE IF NOT EXISTS {table} ({columns});'
             else:
                 command_str = 'CREATE TABLE IF NOT EXISTS {table} ({columns}, {fkeys});'
