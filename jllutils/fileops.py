@@ -7,6 +7,9 @@ import contextlib
 import pickle
 import sys
 
+# Import to make accessible through this module
+from .subutils import ncdf as ncio
+
 
 @contextlib.contextmanager
 def smart_open(filename, mode):
