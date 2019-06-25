@@ -270,9 +270,9 @@ class DatabaseTable(ABC):
         self._commit_on_close = commit_on_close
         self._verbose = verbose
 
-        self._columns, self._primary_keys, self._modifiers = self.setup_tables(columns, primary_key_cols, modifiers,
-                                                                               foreign_keys,
-                                                                               delete_existing=delete_existing_table)
+        self._columns, self._primary_keys, self._modifiers, self._foreign_keys = self.setup_tables(columns, primary_key_cols, modifiers,
+                                                                                                   foreign_keys,
+                                                                                                   delete_existing=delete_existing_table)
 
     def __enter__(self):
         """
@@ -537,6 +537,18 @@ class DatabaseTable(ABC):
             # assuming that both have the same keys; columns_are_same should be called first
             return all([col_in[k].lower() == col_table[k].lower() for k in col_in.keys()])
 
+        def fks_are_same(fks_in, fks_table):
+            # If there are no given foreign keys, then allow the list of ones from the table to be either None
+            # itself or an empty dict.
+            if fks_in is None:
+                return fks_table is None or len(fks_table) == 0
+
+            # Ensure the same foreign keys are present both in the input and in the existing table.
+            # Make the comparison case-insensitve just in case.
+            fks_in = {k.lower(): v.lower() for k, v in fks_in.items()}
+            fks_table = {k.lower(): v.lower() for k, v in fks_table.items()}
+            return fks_in == fks_table
+
         if delete_existing:
             self.sql('DROP TABLE IF EXISTS {table};')
             self.commit()
@@ -553,7 +565,7 @@ class DatabaseTable(ABC):
                      fkeys=self._format_foreign_keys(foreign_keys))
 
         # Check that all the columns are present
-        table_columns, table_keys, table_modifiers = self._get_table_columns()
+        table_columns, table_keys, table_modifiers, table_foreign_keys = self._get_table_columns()
         if columns is None:
             columns = table_columns
         else:
@@ -577,7 +589,10 @@ class DatabaseTable(ABC):
             if not columns_are_same(modifiers, table_modifiers) or not types_are_same(modifiers, table_modifiers):
                 raise SQLSetupError('Given modifiers differ from those in the existing table')
 
-        return columns, primary_keys, modifiers
+        if not fks_are_same(foreign_keys, table_foreign_keys):
+            raise SQLSetupError('Given foreign keys differ from those in the existing table')
+
+        return columns, primary_keys, modifiers, foreign_keys
 
     def _setup_pragmas(self, pragmas):
         if pragmas is None:
@@ -651,13 +666,22 @@ class DatabaseTable(ABC):
 
         return not no_table
 
-    def _get_table_columns(self):
+    def _get_table_columns(self, fkfmt='str'):
         """
         Get the existing columns, primary keys, and modifiers in the table.
 
         :return: column name-type dictionary, tuple of primary keys, modifiers dictionary
         :rtype: dict, tuple, dict
         """
+        def fk_name(fkdef):
+            return re.search(r'(?<=KEY\()\w+(?=\))', fkdef, re.IGNORECASE).group()
+
+        def fk_ref(fkdef):
+            match = re.search(r'(?<=REFERENCES)\s+(?P<table>\w+)\((?P<column>\w+)\)', fkdef)
+            if fkfmt == 'str':
+                return match.group().strip()
+            elif fkfmt == 'dict':
+                return {'table': match.group('table'), 'column': match.group('column')}
 
         cur = self.sql('SELECT sql FROM sqlite_master WHERE name="{table}"')
         create_cmd = cur.fetchall()[0][0]
@@ -668,18 +692,22 @@ class DatabaseTable(ABC):
         #
         # So to find the column names we need to find the part inside the parentheses, split it up by commas, then get
         # the first word in each section as the column name and the second as the type.
-        match = re.search(r'(?<=\().+?(?=\))', create_cmd).group()
+        match = re.search(r'(?<=\().+(?=\))', create_cmd).group()
         column_defs = match.split(',')
-        columns = {c.split()[0]: c.split()[1] for c in column_defs}
+        columns = {c.split()[0]: c.split()[1] for c in column_defs if c.split()[0].upper() != 'FOREIGN'}
         primary_keys = [c.split()[0] for c in column_defs if 'PRIMARY KEY' in c]
 
         # If there's modifiers other than "PRIMARY KEY NOT NULL", we want to get those as well.
         no_prim_keys = match.replace('PRIMARY KEY NOT NULL', '')
         column_defs = no_prim_keys.split(',')
-        mod_lists = {c.split()[0]: c.split()[2:] for c in column_defs}
+        mod_lists = {c.split()[0]: c.split()[2:] for c in column_defs if c.split()[0].upper() != 'FOREIGN'}
         modifiers = {k: ' '.join(v) for k, v in mod_lists.items() if len(v) > 0}
 
-        return columns, tuple(primary_keys), modifiers
+        # Also list foreign keys
+        foreign_key_defs = [' '.join(c.split()[1:]) for c in column_defs if c.split()[0].upper() == 'FOREIGN']
+        foreign_keys = {fk_name(fk): fk_ref(fk) for fk in foreign_key_defs}
+
+        return columns, tuple(primary_keys), modifiers, foreign_keys
 
     def _format_column_names_types(self, columns=None, primary_keys=None, modifiers=None):
         """
