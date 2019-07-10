@@ -8,7 +8,7 @@ import pickle
 import sys
 
 # Import to make accessible through this module
-from .subutils import ncdf as ncio
+from .subutils import ncdf as ncio, hdf5 as h5io
 
 
 @contextlib.contextmanager
