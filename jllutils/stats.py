@@ -1,13 +1,20 @@
 """
 Functions for common statistical methods
 """
-
-
+from copy import deepcopy
 import numpy as np
 from numpy import ma
+import pandas as pd
+import random
 import re
 import scipy.stats as st
 from statsmodels import api as sm, tools as smtools
+from statsmodels.robust.robust_linear_model import RLM
+from statsmodels.robust.norms import TukeyBiweight
+
+
+class BootstrapError(Exception):
+    pass
 
 
 class ConvergenceError(Exception):
@@ -15,6 +22,183 @@ class ConvergenceError(Exception):
     Error to use if a process fails to converge
     """
     pass
+
+
+class FittingError(Exception):
+    """
+    Base class for fitting errors
+    """
+    pass
+
+
+class FittingDataError(FittingError):
+    """
+    Error to use if there's a problem with the data given to the fitting function
+    """
+    pass
+
+
+class BootstrapSampler(object):
+    """
+    A convenience wrapper around ``bootstrap_sample``.
+
+    This class allows you to create an instance that stores the data to sample and a default sample size, which may be
+    convenient if doing a large number of samples.
+
+    :param data: the data to sample. Data will always be sampled along the first dimension, so if ``data`` is N-D,
+     the samples will also be N-D.
+    :type data: array-like
+
+    :param flat: convenience option; set to ``True`` to flatten the data to 1-D internally.
+    :type flat: bool
+
+    :param with_replacement: controls whether the data sampling will be done with or without replacement. When
+     ``True``, a data point may be chosen more than once in a single sample. If ``False``, a data point will be
+     chosen exactly once.
+    :type with_replacement: bool
+
+    :param default_sample_size: if given, then calling the ``sample`` or ``run_bootstrap`` methods without a sample
+     size specified will use this size. If not given here, then it *must* be specified when calling those methods.
+    :type default_sample_size: int
+
+    :param sampling_fxn: a function that will be called on the samples when using ``run_bootstrap``. The function
+     must accept an array as the sole input. The return values from the function may be any form, and must be
+     specified by the ``rvalues`` parameter.
+    :type sampling_fxn: callable
+
+    :param rvalues: this parameter specifies how many values the sampling function returns and whether they should
+     be stored in an array or a dictionary.
+
+     If ``rvalues`` is an integer, it must indicate how many values are returned by ``sampling_fxn``. In this form,
+     ``run_bootstrap`` will store the results from the sampling as an ngroups-by-rvalues array. That is, the first
+     row will be the values resulting from calling ``sampling_fxn`` on the first sample group, the second row for
+     the second sampling group and so on.
+
+     If ``rvalues`` is a list or tuple, then the return values from ``sampling_fxn`` will be stored in a dictionary
+     and ``rvalues`` is taken to give dictionary keys to use. E.g. if ``rvalues`` is ``('slope', 'int')`` then the
+     first outputs from ``sampling_fxn`` will be stored in the array under the ``'slope'`` key and the second under
+     the ``'int'`` key.
+
+    :type rvalues: int, list, or tuple
+
+    :param rfill: the fill value to use when initializing the arrays to store the return values from
+     ``sampling_fxn``. This implicitly sets the data type of these array. At present there is no way to specify
+     separate types for different keys when ``rvalue`` implied storing data as a dictionary.
+    :type rfill: any
+    """
+    def __init__(self, data, flat=False, with_replacement=True, default_sample_size=None, sampling_fxn=None,
+                 rvalues=1, rfill=np.nan):
+        self._data = data if not flat else data.flatten()
+        self._replacement = with_replacement
+        self._sample_size = default_sample_size
+
+        if isinstance(rvalues, int):
+            if rvalues < 1:
+                raise BootstrapError('Number of return values must be >= 1')
+        elif not isinstance(rvalues, (list, tuple)):
+            raise BootstrapError('rvalues must be an int or list/tuple of dict keys')
+
+        self._rvalues = rvalues
+        self._rfill = rfill
+        self._sampling_fxn = sampling_fxn
+
+    def sample(self, sample_size=None):
+        """
+        Get a bootstrap sample group.
+
+        :param sample_size: how large each sample should be. Doesn't need to be given if the default sample size was
+         specified when creating the instance. If a value is given here, it overrides the default sample size.
+        :type sample_size: int
+
+        :return: the bootstrap sample group.
+        :rtype: array-like
+        """
+        if sample_size is None:
+            if self._sample_size is None:
+                raise BootstrapError('Must provide either a default sample size when creating the BootstrapSampler '
+                                     'instance or a specific sample size when getting the sample')
+            else:
+                sample_size = self._sample_size
+
+        return bootstrap_sample(self._data, sample_size, with_replacement=self._replacement)
+
+    def run_bootstrap(self, n_groups, sample_size=None):
+        """
+        Run a series of bootstrap samplings on the data
+
+        This method calls the sampling function specified when creating this instance on each sample group created by
+        the bootstrapping and returns the collection of results as either a 2D array or dictionary of 1D arrays,
+        depending on the value of ``rvalues`` when this instance was created. ``sampling_fxn`` must have been given
+        when the instance was created.
+
+        :param n_groups: how many bootstrapping sample groups to create.
+        :type n_groups: int
+
+        :param sample_size: how large each sample should be. Doesn't need to be given if the default sample size was
+         specified when creating the instance. If a value is given here, it overrides the default sample size.
+        :type sample_size: int
+
+        :return: the results of the bootstrap sampling as a 2-D array (ngroups-by-nreturn_vals) if ``rvalues`` was an
+         integer when the instance was created or a dictionary of 1-D arrays if ``rvalues`` was a list/tuple.
+        :rtype: :class:`numpy.ndarray` or dict
+        """
+        if self._sampling_fxn is None:
+            raise BootstrapError('Must have a sampling function to use run_bootstrap')
+
+        if isinstance(self._rvalues, (tuple, list)):
+            results = {k: np.full([n_groups], self._rfill) for k in self._rvalues}
+            as_dict = True
+        elif isinstance(self._rvalues, int):  # assume rvalues is an integer
+            results = np.full([n_groups, self._rvalues], self._rfill)
+            as_dict = False
+        else:
+            raise TypeError('rvalues must be a tuple, list, or integer')
+
+        for i in range(n_groups):
+            sample_data = self.sample(sample_size)
+            these_results = self._sampling_fxn(sample_data)
+            if as_dict and isinstance(these_results, dict):
+                for k in self._rvalues:
+                    results[k][i] = these_results[k]
+            elif as_dict:
+                for k, val in zip(self._rvalues, these_results):
+                    results[k][i] = val
+            else:
+                results[i] = these_results
+
+        return results
+
+
+def bootstrap_sample(data, sample_size, with_replacement=True):
+    """
+    Perform bootstrap sampling on an array of data.
+
+    Selects N points from ``data`` and returns them. If ``data`` is multidimensional, the selection happens along the
+    first dimension, e.g. if ``data`` is 2D, then N rows are returned. To select individual points from a
+    multidimensional array, flatten it before passing.
+
+    :param data: data to sample. Must support numpy-style indexing.
+    :type data: array-like
+
+    :param sample_size: the number of samples to generate for each bootstrap.
+    :type sample_size: int
+
+    :param with_replacement: if ``True``, then any single sample may be chosen multiple times. If ``False``, a sample
+     will be chosen at most once.
+    :type with_replacement: bool
+
+    :return: the sample array.
+    """
+    n_data_pts = np.shape(data)[0]
+    if n_data_pts < sample_size and not with_replacement:
+        raise BootstrapError('Fewer than the requested {} points are available for sampling'.format(sample_size))
+
+    if with_replacement:
+        chosen_inds = np.random.randint(n_data_pts, size=sample_size)
+    else:
+        chosen_inds = random.sample(range(n_data_pts), sample_size)
+
+    return data[chosen_inds]
 
 
 class PolyFitModel(object):
@@ -127,12 +311,15 @@ class PolyFitModel(object):
         """
         return self._data
 
-    def __init__(self, x, y, xerr=None, yerr=None, model='york', model_opts=None):
+    def __init__(self, x, y, xerr=None, yerr=None, model='york', model_opts=None, nans='error'):
         # Coerce input data to floats. Check them at the same time
         x = self._fix_in_type(x, 'x')
         y = self._fix_in_type(y, 'y')
         xerr = self._fix_in_type(xerr, 'xerr', allow_none=True)
         yerr = self._fix_in_type(yerr, 'yerr', allow_none=True)
+
+        # Deal with NaNs/infs
+        x, y, xerr, yerr = _handle_nans(nans, x, y, xerr, yerr)
 
         # Store data
         self._fit_fxn = self._get_fit_fxn(model)
@@ -273,9 +460,24 @@ class PolyFitModel(object):
             coeffs_err = np.sqrt(np.diag(results.cov_params()))
             return coeffs, coeffs_err, results
 
+        def robust(x, y, zero_int=False):
+            if not zero_int:
+                x = smtools.add_constant(x)
+
+            fit = RLM(y, x, M=TukeyBiweight()).fit()
+            if zero_int:
+                coeffs = np.array([0, fit.params.item()])
+                coeffs_err = np.array([0, fit.cov_params().item()])
+            else:
+                coeffs = fit.params
+                coeffs_err = np.sqrt(np.diag(fit.cov_params()))
+
+            return coeffs, coeffs_err, fit
+
+        model_lower = model.lower()
         if not isinstance(model, str):
             return model
-        elif model.lower() == 'york':
+        elif model_lower == 'york':
             return york_fit
         elif re.match(r'y[\-_]resid', model, re.IGNORECASE):
             # Allow the user to specify y-resid or y_resid for the typical linear fit, but also y-resid2, y-resid3, etc.
@@ -283,10 +485,14 @@ class PolyFitModel(object):
             order = re.search(r'\d+$', model)
             order = 1 if order is None else int(order.group())
             return lambda x, y, xerr, yerr, deg=order: y_resid(x, y, deg)
-        elif model.lower() == 'ols':
+        elif model_lower == 'ols':
             return lambda x, y, xerr, yerr, zint=False: ols(x, y, zero_int=zint)
-        elif model.lower() == 'ols0':
+        elif model_lower == 'ols0':
             return lambda x, y, xerr, yerr, zint=True: ols(x, y, zero_int=zint)
+        elif model_lower == 'robust':
+            return lambda x, y, xerr, yerr: robust(x, y, zero_int=False)
+        elif model_lower == 'robust0':
+            return lambda x, y, xerr, yerr: robust(x, y, zero_int=True)
 
     def predict(self, x):
         """
@@ -618,7 +824,7 @@ def york_linear_fit(x, std_x, y, std_y, max_iter=100, nboot=10):
     return results
 
 
-def r(y, x):
+def r(y, x, nans='error'):
     """
     Calculate the Pearson's correlation coefficient
 
@@ -626,6 +832,7 @@ def r(y, x):
     :param x: the x-values, i.e. independent data
     :return: the r coefficient
     """
+    x, y, _, _ = _handle_nans(nans, x, y)
     corr = np.corrcoef(x, y)
     return corr[0, 1]  # the off-diagonal terms of the correlation matrix give the correlation coefficient
 
@@ -732,6 +939,114 @@ def fisher_z_test(x=None, y=None, p=0.05, two_tailed=True):
     return np.abs(zobs) > zcrit
 
 
+def bin_1d(data, coord, bins, **kwargs):
+    """
+    Bin 1D data and apply an arbitrary operation to the bins.
+
+    :param data: the data to bin
+    :type data: array-like
+
+    :param coord: an array that gives the coordinates that the data will be binned by.
+    :type coord: array-like
+
+    :param bins: an integer specifying the number of bins, or a vector (``v``) specifying bin edges where the edges for
+     bin ``i`` are defined by ``v[i]`` and ``v[i+1]``.
+    :type bins: int or array-like
+
+    :param kwargs: additional keyword arguments to be passed to :func:`bin_nd`.
+
+    :return: binned data and, if requested, the bin edges or bin center.
+    :rtype: :class:`numpy.ndarray`, :class:`numpy.ndarray` (optional)
+    """
+    retvals = bin_nd(data, [coord], [bins], **kwargs)
+    if isinstance(retvals, tuple):
+        # If the user requested that the bin edges/centers be returned, retvals will be a tuple. We want to extract the
+        # bins out of the list of bins (since bin_nd needs to return one set of bins per dimension, but in this case
+        # we only have one).
+        if len(retvals) == 2:
+            retvals = (retvals[0], retvals[1][0])
+        elif len(retvals) > 2:
+            raise NotImplementedError('expected 1 or 2 return values from bin_nd')
+
+    return retvals
+
+
+def bin_nd(data, coords, bins, op=np.size, out=None, ret_bins='no'):
+    """
+    Bin multidimensional data and apply an arbitrary operation to the bins.
+
+    :param data: the data to bin
+    :type data: array-like
+
+    :param coords: a collection of arrays that define the coordinates of the data. Each array must have the same number
+     of elements as data. The number of arrays will determine the dimensionality of the output array, i.e. if there
+     are two coordinate arrays, the output array will be 2D.
+    :type coords: collection(array-like)
+
+    :param bins: a collection specifying the bins to use for each coordinate. That is, ``coords[0]`` will be binned
+     according to ``bins[0]`` and so on. Bins may either be specified as a integer, which gives the number of bins, or
+     a vector, ``v`` such that ``v[i]`` and ``v[i+1]`` specify the edges for bin ``i``.
+    :type bins: collection(int or array-like)
+
+    :param op: a function that takes an array as the sole input and returns a scalar value as the output. That value
+     will be the binned value. The default is :func:`numpy.size`, which will cause the binned value to be the number of
+     values in the bin.
+    :type op: callable
+
+    :param out: optional, if given, an array to place the binned values in. Its shape must be (n1 x n2 x ...) where n1,
+     n2, etc. are the number of bins for each dimension. If not given, it is created and automatically.
+    :type out: array-like
+
+    :param ret_bins: optional, specifies whether to return the bins as the second output:
+
+     * "no", "n", or ``False`` will not (only one return value).
+     * "yes", "y", ``True``, "edge", or "edges" will return the bin edges as a collection.
+     * "center" or "centers" will return the bin centers as a collection.
+
+    :type ret_bins: bool or str
+
+    :return: the binned values as an array with number of dimensions equal to the number of coordinates given, and shape
+     equal to the number of bins in each dimension. Optionally, also return the bin edges or centers for each dimension
+     as a collection of arrays.
+    :rtype: :class:`numpy.ndarray`, list(array)
+    """
+    if len(coords) != len(bins):
+        raise ValueError('coords and bins must be the same length')
+
+    # We can use Pandas's groupby feature to group data from the same bin together so we need to construct a dataframe
+    # that has columns containing the bin indices for each dimension.
+    bins = deepcopy(bins)
+    df_dict = {'data': data.flatten()}
+    coord_cols = []
+    for i, (coord, bin) in enumerate(zip(coords, bins)):
+        if isinstance(bin, int):
+            bin = np.linspace(np.min(coord), np.max(coord), bin+1)
+            bin[-1] *= 1.001  # scale the last bin edge to ensure the max value gets included in the last bin
+            bins[i] = bin
+        inds = np.digitize(coord.flatten(), bin) - 1
+        colname = 'ind{}'.format(i)
+        df_dict[colname] = inds
+        coord_cols.append(colname)
+
+    df = pd.DataFrame(df_dict)
+    if out is None:
+        out = np.full([np.size(b)-1 for b in bins], np.nan if np.issubdtype(data.dtype, np.floating) else 0)
+
+    for inds, grp in df.groupby(coord_cols):
+        subdata = grp['data']
+        out[inds] = op(subdata)
+
+    if ret_bins in ('centers', 'center'):
+        bin_centers = [0.5*(b[:-1] + b[1:]) for b in bins]
+        return out, bin_centers
+    elif ret_bins in ('edges', 'edge', 'yes', 'y', True):
+        return out, bins
+    elif ret_bins in ('no', 'n', False):
+        return out
+    else:
+        raise ValueError('Unrecognized value for ret_bins: "{}"'.format(ret_bins))
+
+
 def hist2d(x, y, xbins=10, ybins=10):
     """
 
@@ -756,7 +1071,7 @@ def hist2d(x, y, xbins=10, ybins=10):
     def check_bins(coord, bins, name):
         if np.ndim(bins) == 0:
             # Expand the top bin just a little bit so we get the max point
-            bins = np.linspace(np.min(coord), np.max(coord)*1.0001, bins+1)
+            bins = np.linspace(np.nanmin(coord), np.nanmax(coord)*1.0001, bins+1)
         elif np.ndim(bins) != 1:
             raise TypeError('{} must be a scalar integer or a 1D vector'.format(name))
         elif np.any(np.diff(bins) < 0):
@@ -777,3 +1092,53 @@ def hist2d(x, y, xbins=10, ybins=10):
             counts[i, j] = np.sum(xx & yy)
 
     return counts, xbins, ybins
+
+
+def nanabsmax(a, *args, **kwargs):
+    """
+    Calculate the signed maximum distance from zero in a dataset
+
+    For a vector, v, returns the element vi for which |vi| is greatest.
+
+    :param a: the array to operate on.
+    :type a: :class:`numpy.ndarray`
+
+    :param args: additional positional arguments recognized by nanmax and nanmin.
+    :param kwargs: additional keyword arguments recognized by nanmax and nanmin. This and ``args`` can be use to operate
+     along a specific axis for example.
+
+    :return: the value or values farthest from 0.
+    """
+    amax = np.nanmax(a, *args, **kwargs)
+    amin = np.nanmin(a, *args, **kwargs)
+    if np.ndim(amax) > 0:
+        xx = np.abs(amax) < np.abs(amin)
+        amax[xx] = amin[xx]
+    elif np.abs(amax) < np.abs(amin):
+        # scalar values - can't do item assignment
+        amax = amin
+
+    return amax
+
+
+def _handle_nans(method, x, y, xerr=None, yerr=None):
+    not_nans = np.isfinite(x) & np.isfinite(y)
+    if xerr is not None:
+        not_nans |= np.isfinite(xerr)
+    if yerr is not None:
+        not_nans |= np.isfinite(yerr)
+
+    if method.lower() == 'ignore':
+        pass
+    elif method.lower() == 'error':
+        if np.any(~not_nans):
+            raise FittingDataError('NaNs or infs found in the x, y, xerr, or yerr vectors')
+    elif method.lower() == 'drop':
+        x = x[not_nans]
+        y = y[not_nans]
+        xerr = xerr[not_nans] if xerr is not None else xerr
+        yerr = yerr[not_nans] if yerr is not None else yerr
+    else:
+        raise ValueError('Method to handle bad values must be one of "ignore", "error", or "drop"')
+
+    return x, y, xerr, yerr
