@@ -316,7 +316,58 @@ class ColorMapper(mpl.cm.ScalarMappable):
         :return: a new class instance
         :rtype: :class:`ColorMapper`
         """
-        return cls(vmin=np.min(data), vmax=np.max(data), **kwargs)
+        return cls(vmin=np.nanmin(data), vmax=np.nanmax(data), **kwargs)
+
+
+def pcolordiff(x_or_data, y=None, data=None, plotting_fxn=plt.pcolormesh, fraction_of_max=1.0, cmap='RdYlBu', **plot_kwargs):
+    """
+    Make a pseudo-color difference plot.
+
+    This is basically a wrapper around :func:`~matplotlib.pyplot.pcolormesh` that automatically sets the color limits to
+    even values around 0 to support diverging colormaps easily. Also defaults to a diverging colormap.  May be called
+    as::
+
+        pcolordiff(data)
+
+    to use default indices for the x and y axes or::
+
+        pcolordiff(x, y, data).
+
+    In this case, ``data`` need to follow the pcolor convention of being ny-by-nx.
+
+    :param x_or_data: either the data to plot as the colors (in the one-argument form) or the x-coordinates, in any
+     form compatible with :func:`~matplotlib.pyplot.pcolormesh`.
+    :type x_or_data: array-like
+
+    :param y: the y-coordinates (if using the three-argument form) in any form compatible with
+     :func:`~matplotlib.pyplot.pcolormesh`.
+    :type y: array-like
+
+    :param data: the data to plot (if using the three-argument form) as a ny-by-nx array.
+    :type data: array-like
+
+    :param plotting_fxn: the underlying plotting function to use. May be any plotting function that can be called using
+     the one- or three- argument forms above, and also accepts the ``cmap``, ``vmin``, and ``vmax`` keywords.
+    :type plotting_fxn: callable
+
+    :param fraction_of_max: this scales the limits of the color map. By default the limits will be set to +/-
+     ``nanmax(abs(data))``. Changing this input will scale those limits, i.e. the new limits will be
+     ``nanmax(abs(data)) * fraction_of_max``.
+    :type fraction_of_max: float
+
+    :param cmap: the colormap to use for the plot.
+
+    :param plot_kwargs: additional keywords for the plotting function
+
+    :return: All return values from the plotting function.
+    """
+    maxd = np.nanmax(np.abs(data)) * fraction_of_max
+    if data is None:
+        return plotting_fxn(x_or_data, cmap=cmap, vmin=-maxd, vmax=+maxd, **plot_kwargs)
+    elif y is None:
+        raise TypeError('Must call as pcolordiff(data) or pcolordiff(x, y, data). pcolordiff(data=data) is not supported')
+    else:
+        return plotting_fxn(x_or_data, y, data, cmap=cmap, vmin=-maxd, vmax=+maxd, **plot_kwargs)
 
 
 def _is_color_tuple(t):
