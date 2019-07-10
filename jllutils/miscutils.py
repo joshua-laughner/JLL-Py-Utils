@@ -3,6 +3,7 @@ Utilities that don't fit any other well defined category
 """
 import numpy as np
 
+
 def all_or_none(val):
     """
     Return ``True`` if all or no values in the input are truthy
@@ -15,6 +16,61 @@ def all_or_none(val):
     """
     s = sum([bool(v) for v in val])
     return s == 0 or s == len(val)
+
+
+def find(a, axis=None, pos='all'):
+    """
+    Find indices where an array has a truth-like value.
+
+    This function provides a different way of getting indices where ``a`` is truthy than :func:`numpy.argwhere` or
+    :func:`numpy.nonzero`. Its functionality varies slightly whether an axis is specified.
+
+     * If ``axis`` is ``None``, then ``find`` behaves like :func:`numpy.flatnonzero`, finding the linear indices of
+       truthy values in ``a``.
+     * If ``axis`` is given, then ``pos`` must be "first" or "last" and ``find`` will return the first or last index of
+       a truthy value along that dimension as an (N-1) dimensional array (assuming ``a`` is N-D).
+
+    :param a: the array to find truthy values in
+    :type a: array-like
+
+    :param axis: which axis to operate along. The behavior of ``find`` changes slightly if ``axis`` is not specified,
+     see the main description for details.
+    :type axis: int or None
+
+    :param pos: the position of the indices to return. May be "all", "first", or "last". If ``axis`` is specified, then
+     ``pos`` must be "first" or "last".
+    :type pos: str
+
+    :return: indices of truthy values in ``a``. If ``axis`` is not specified, these will be linear indices for the
+     flattened version of ``a``. If ``axis`` is specified, these will be linear indexes along the requested axis.
+    :rtype: int or array-like
+    """
+    if axis is None:
+        xx = np.flatnonzero(a)
+        if pos == 'first':
+            return xx[0]
+        elif pos == 'last':
+            return xx[-1]
+        elif pos == 'all':
+            return xx
+        else:
+            raise ValueError('pos must be "all", "first", or "last"')
+
+    else:
+        shape_arr = np.ones_like(a.shape)
+        shape_arr[axis] = -1
+        indices = np.arange(a.shape[axis], dtype=np.float).reshape(shape_arr)
+        indices = np.broadcast_to(indices, a.shape).copy()
+        indices[~a] = np.nan
+
+        if pos == 'last':
+            return np.nanargmax(indices, axis=axis).astype(np.int)
+        elif pos == 'first':
+            return np.nanargmin(indices, axis=axis).astype(np.int)
+        elif pos == 'all':
+            raise NotImplementedError('No behavior implemented for pos = "all" along a specific axis')
+        else:
+            raise ValueError('pos must be "all", "first", or "last"')
 
 
 def find_block(a, axis=0, ignore_masked=True, as_slice=False, block_value=None):
