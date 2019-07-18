@@ -1036,7 +1036,16 @@ def bin_nd(data, coords, bins, op=np.size, out=None, ret_bins='no'):
 
     for inds, grp in df.groupby(coord_cols):
         subdata = grp['data']
-        out[inds] = op(subdata)
+        if isinstance(inds, int) and inds < 0:
+            continue
+        elif not isinstance(inds, int) and any(i < 0 for i in inds):
+            continue
+        try:
+            out[inds] = op(subdata)
+        except IndexError:
+            # inds will be too large if any of the values is outside the right edge of the last bin, so just skip those
+            # since we don't want to bin them. We caught any outside the left edge of the bin checking if any are < 0
+            continue
 
     if ret_bins in ('centers', 'center'):
         bin_centers = [0.5*(b[:-1] + b[1:]) for b in bins]
