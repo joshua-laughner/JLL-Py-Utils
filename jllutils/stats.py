@@ -311,7 +311,9 @@ class PolyFitModel(object):
         """
         return self._data
 
-    def __init__(self, x, y, xerr=None, yerr=None, model='york', model_opts=None, nans='error'):
+    def __init__(self, x, y, xerr=None, yerr=None, model='york', model_opts=None, nans='error', print_errs=True):
+        self._print_errs = print_errs
+
         # Coerce input data to floats. Check them at the same time
         x = self._fix_in_type(x, 'x')
         y = self._fix_in_type(y, 'y')
@@ -348,7 +350,7 @@ class PolyFitModel(object):
             if power > 0:
                 s += ' + '
 
-            if e is not None and not np.isnan(e):
+            if self._print_errs and e is not None and not np.isnan(e):
                 s += '({:.3g} +/- {:.3g})'.format(c, e)
             else:
                 s += '{:.3g}'.format(c)
