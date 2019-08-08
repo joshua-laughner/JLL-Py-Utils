@@ -177,3 +177,10 @@ def h5find(file_or_handle, target_name, target_type='dataset', unique=True, retu
             matches = matches[0]
 
     return matches
+
+
+def h5getpath(h5handle, path):
+    f = h5handle
+    for p in path:
+        f = f[p]
+    return f
