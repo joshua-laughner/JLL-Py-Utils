@@ -180,8 +180,9 @@ def bootstrap_sample(data, sample_size, with_replacement=True):
     :param data: data to sample. Must support numpy-style indexing.
     :type data: array-like
 
-    :param sample_size: the number of samples to generate for each bootstrap.
-    :type sample_size: int
+    :param sample_size: the number of samples to generate for each bootstrap. If given as a value between [0, 1), it
+     is interpreted as the fraction of the data set to sample.
+    :type sample_size: int or float
 
     :param with_replacement: if ``True``, then any single sample may be chosen multiple times. If ``False``, a sample
      will be chosen at most once.
@@ -189,6 +190,9 @@ def bootstrap_sample(data, sample_size, with_replacement=True):
 
     :return: the sample array.
     """
+    if 0 <= sample_size < 1:
+        sample_size = int(sample_size * np.shape(data)[0])
+
     n_data_pts = np.shape(data)[0]
     if n_data_pts < sample_size and not with_replacement:
         raise BootstrapError('Fewer than the requested {} points are available for sampling'.format(sample_size))
