@@ -662,7 +662,9 @@ class DatabaseTable(ABC):
             else:
                 key_check = [k for k in modifiers.keys() if k not in columns]
                 if len(key_check) > 0:
-                    raise SQLSetupError('The following ')
+                    raise SQLSetupError('The following columns used in modifiers are not defined in columns: {}'.format(
+                        ', '.join(key_check)
+                    ))
 
         return not no_table
 
