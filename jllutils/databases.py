@@ -695,13 +695,16 @@ class DatabaseTable(ABC):
         # So to find the column names we need to find the part inside the parentheses, split it up by commas, then get
         # the first word in each section as the column name and the second as the type.
         match = re.search(r'(?<=\().+(?=\))', create_cmd).group()
-        column_defs = match.split(',')
+        
+        # credit https://stackoverflow.com/a/26634150 - need to avoid splitting on commas inside parentheses
+        # for constraints like CHECK(column in ("alpha", "bravo"))
+        column_defs = re.split(r',\s*(?![^()]*\))', match)
         columns = {c.split()[0]: c.split()[1] for c in column_defs if c.split()[0].upper() != 'FOREIGN'}
         primary_keys = [c.split()[0] for c in column_defs if 'PRIMARY KEY' in c]
 
         # If there's modifiers other than "PRIMARY KEY NOT NULL", we want to get those as well.
         no_prim_keys = match.replace('PRIMARY KEY NOT NULL', '')
-        column_defs = no_prim_keys.split(',')
+        column_defs = re.split(r',\s*(?![^()]*\))', no_prim_keys)
         mod_lists = {c.split()[0]: c.split()[2:] for c in column_defs if c.split()[0].upper() != 'FOREIGN'}
         modifiers = {k: ' '.join(v) for k, v in mod_lists.items() if len(v) > 0}
 
@@ -752,7 +755,15 @@ class DatabaseTable(ABC):
             if k in primary_keys:
                 col_def += ' PRIMARY KEY NOT NULL'
             if k in modifiers:
-                col_def += ' ' + modifiers[k].upper()
+                this_mod = modifiers[k]
+                # Uppercase most of the modifier, but don't uppercase string literals
+                # e.g. CHECK(column in ("alpha", "beta")) should not uppercase the 
+                # "alpha" and "beta"
+                upper_mod = this_mod.upper()
+                strings = re.findall(r'"[^"]+"', this_mod)
+                for substr in strings:
+                    upper_mod = upper_mod.replace(substr.upper(), substr)
+                col_def += ' ' + upper_mod
             column_names.append(col_def)
 
         return ', '.join(column_names)
