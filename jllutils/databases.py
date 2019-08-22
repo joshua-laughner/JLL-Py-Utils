@@ -164,6 +164,13 @@ class SQLSetupError(Exception):
     pass
 
 
+class SQLColumnError(Exception):
+    """
+    Class for errors relating to column names of an SQL table
+    """
+    pass
+
+
 class DatabaseTable(ABC):
     """
     This abstract class contains all the functionality common to accessing SQLite3 or MySQL database tables. Concrete
@@ -334,16 +341,34 @@ class DatabaseTable(ABC):
         :return: None
         """
 
+        # One problem I ran into was when I was dealing with column names that matched reserved SQL words ("or" in this
+        # case). The way to allow that is to put the column names in brackets, however, then the :key syntax can't be
+        # used. So we have to take a dictionary with keys that include brackets where necessary, keep the brackets when
+        # naming the columns in the tablename() part of the command, but strip them for the :key values.
+        def format_key(k):
+            in_bracket = re.search(r'(?<=^\[)\w+(?=\]$)', k)
+            if in_bracket:
+                return in_bracket.group()
+
+            plain = re.search(r'^\w+$', k)
+            if not plain:
+                raise SQLColumnError('{} is not a valid column name. Column names must be alphanumerics, optionally '
+                                     'enclosed in brackets.'.format(k))
+            else:
+                return plain.group()
+
         row_dict = self._check_row_dict(row_dict)
 
         # Construct the SQL command that will insert them. According to
         # https://www.pythoncentral.io/introduction-to-sqlite-in-python/,
         # we can use a dictionary of values if the VALUE() part uses key formatting
         columns = list(row_dict.keys())
-        keys = ', '.join([':' + c for c in columns])
+        keys = ', '.join([':' + format_key(c) for c in columns])
         columns = ', '.join(columns)
         command_str = 'INSERT INTO {table}({columns}) VALUES({keys})'
-        self.sql(command_str, values=row_dict, columns=columns, keys=keys)
+        new_row_dict = {format_key(k): v for k, v in row_dict.items()}
+
+        self.sql(command_str, values=new_row_dict, columns=columns, keys=keys)
 
     def update_row(self, identifying_values, new_values):
         """
