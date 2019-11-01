@@ -357,6 +357,26 @@ class DatabaseTable(ABC):
             indent = '  ' * level
             print(indent + msg)
 
+    @staticmethod
+    def _format_key(k):
+        """
+        Format a values dict key to work in an SQL values role
+
+        For column names that are SQL reserved keywords (e.g. "or"), they can be enforced to be treated as column
+        names by surrounding with brackets ("[or]"). However, when passing a dictionary to self.sql for the "values"
+        keyword, the keys cannot have the brackets, so this extracts the key inside the brackets.
+        """
+        in_bracket = re.search(r'(?<=^\[)\w+(?=\]$)', k)
+        if in_bracket:
+            return in_bracket.group()
+
+        plain = re.search(r'^\w+$', k)
+        if not plain:
+            raise SQLColumnError('{} is not a valid column name. Column names must be alphanumerics, optionally '
+                                 'enclosed in brackets.'.format(k))
+        else:
+            return plain.group()
+
     def add_table_row(self, row_dict):
         """
         Add a new row to the table.
@@ -374,17 +394,6 @@ class DatabaseTable(ABC):
         # case). The way to allow that is to put the column names in brackets, however, then the :key syntax can't be
         # used. So we have to take a dictionary with keys that include brackets where necessary, keep the brackets when
         # naming the columns in the tablename() part of the command, but strip them for the :key values.
-        def format_key(k):
-            in_bracket = re.search(r'(?<=^\[)\w+(?=\]$)', k)
-            if in_bracket:
-                return in_bracket.group()
-
-            plain = re.search(r'^\w+$', k)
-            if not plain:
-                raise SQLColumnError('{} is not a valid column name. Column names must be alphanumerics, optionally '
-                                     'enclosed in brackets.'.format(k))
-            else:
-                return plain.group()
 
         row_dict = self._check_row_dict(row_dict)
 
@@ -392,10 +401,10 @@ class DatabaseTable(ABC):
         # https://www.pythoncentral.io/introduction-to-sqlite-in-python/,
         # we can use a dictionary of values if the VALUE() part uses key formatting
         columns = list(row_dict.keys())
-        keys = ', '.join([':' + format_key(c) for c in columns])
+        keys = ', '.join([':' + self._format_key(c) for c in columns])
         columns = ', '.join(columns)
         command_str = 'INSERT INTO {table}({columns}) VALUES({keys})'
-        new_row_dict = {format_key(k): v for k, v in row_dict.items()}
+        new_row_dict = {self._format_key(k): v for k, v in row_dict.items()}
 
         self.sql(command_str, values=new_row_dict, columns=columns, keys=keys)
 
@@ -418,11 +427,14 @@ class DatabaseTable(ABC):
             raise ValueError('A column used in identifying values cannot be in new_values as well')
 
         where_crit_str = self._format_where_crit_string(identifying_values.keys())
-        set_str = self.__format_set_string(new_values.keys())
+        set_str = self._format_set_string(new_values.keys())
 
+        # Like add_table_row, the values dict needs to have any keys in brackets replaced with 
+        # unbracketed keys.
         vals = dict()
         vals.update(identifying_values)
-        vals.update(new_values)
+        for k, v in new_values.items():
+            vals[self._format_key(k)] = v
 
         self.sql('UPDATE {table} SET {set} WHERE {crit}', values=vals, set=set_str, crit=where_crit_str)
 
@@ -887,9 +899,9 @@ class DatabaseTable(ABC):
         """
         return ' AND '.join(['{k} = :{k}'.format(k=k) for k in keys])
 
-    @staticmethod
-    def __format_set_string(keys):
-        return ', '.join('{k} = :{k}'.format(k=k) for k in keys)
+    @classmethod
+    def _format_set_string(cls, keys):
+        return ', '.join('{} = :{}'.format(k, cls._format_key(k)) for k in keys)
 
 
 class SQLiteDatabaseTable(DatabaseTable):
