@@ -8,6 +8,7 @@ import numpy as np
 
 from .stats import hist2d
 
+
 class IncompatibleOptions(Exception):
     """
     Error to use when incompatible options are passed
@@ -15,7 +16,7 @@ class IncompatibleOptions(Exception):
     pass
 
 
-def create_twin_axes_with_color(twin='x', color2=None, color1=None):
+def create_twin_axes_with_color(twin='x', color2=None, color1=None, ax=None):
     """
     Create twinned axes where the axes are colored
 
@@ -24,7 +25,12 @@ def create_twin_axes_with_color(twin='x', color2=None, color1=None):
     :param color1:
     :return:
     """
-    fig, ax1 = plt.subplots()
+    if ax is None:
+        fig, ax1 = plt.subplots()
+    else:
+        fig = ax.figure
+        ax1 = ax
+
     if twin == 'x':
         ax2 = ax1.twinx()
         spines = [ax1.spines['left'], ax2.spines['right']]

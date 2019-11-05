@@ -4,13 +4,17 @@ Classes to wrap databases in a more convenient way
 from __future__ import print_function, absolute_import, division, unicode_literals
 from abc import ABC
 from datetime import datetime as dtime
+from logging import getLogger
 import re
 import sqlite3
-import sys
+import time
 
 from numpy import number as npnumber, signedinteger as npint, bool_ as npbool, issubdtype
 
 from .miscutils import all_or_none
+
+
+logger = getLogger(__name__)
 
 
 class RowSelectionError(Exception):
@@ -164,64 +168,17 @@ class SQLSetupError(Exception):
     pass
 
 
+class SQLColumnError(Exception):
+    """
+    Class for errors relating to column names of an SQL table
+    """
+    pass
+
+
 class DatabaseTable(ABC):
     """
     This abstract class contains all the functionality common to accessing SQLite3 or MySQL database tables. Concrete
     subclasses for each of those types of databases will have different init methods to set up the connection.
-
-    :param connection: an object that serves as a connection to a database. Must have an ``execute`` method that returns
-     a cursor to that database.
-
-    :param table: the name of the table in the database to read
-    :type table: str
-
-    :param columns: a dictionary where the keys are the names of columns required in the table and the values are
-     strings giving the expected SQL type. Currently supported types are "date", "datetime", "integer", "boolean",
-     and "text". May be omitted if connecting to an existing table. If not omitted and connecting to an existing table,
-     the column names and types must match the existing table.
-    :type columns: dict
-
-    :param primary_key_cols: a tuple or list specifying by name which columns are to be primary keys. If the table is
-     being created they will be defined as PRIMARY KEY NOT NULL. May be omitted if connecting to an existing table. If
-     not omitted and connecting to an existing table, the list of primary keys must match the existing table.
-    :type primary_key_cols: list or tuple of str
-
-    :param modifiers: a dictionary where the keys are the names of columns and the values are strings giving any
-     SQL modifiers that that column should have, as a string. E.g. if you want the "file" column to be unique and not
-     null, then ``modifiers = {'file': 'UNIQUE NOT NULL'} would accomplish that. Not all columns are required to be
-     included in this dictionary; any that are absent are assumed to have no modifiers.
-    :type modifiers: dict
-
-    :param autocommit: optional, controls whether every operation on the table should be automatically committed.
-     Default is ``False``.
-    :type autocommit: bool
-
-    :param commit_on_close: optional, controls whether any pending operations to the table should automatically be
-     committed when closing the connection, either through the `close` method or when the class is automatically
-     closed by a ``with`` block. Default is ``True``.
-    :type commit_on_close: bool
-
-    :param delete_existing_table: optional, controls whether an existing table with the given name should be deleted.
-     Default is ``False``. Use with great caution!
-    :type delete_existing_table: bool
-
-    :param pragmas: a dictionary listing SQLite "PRAGMA" statements to execute immediately after the connection is
-     established. The keys should be the pragma names, the values the values they should be assigned. For example,
-     ``pragmas = {'foreign_keys': 'ON'}`` would execute ``PRAGMA foreign_keys = ON;`` immediately after the connection
-     is established. If this argument is not given, default pragmas defined in the class attribute ``default_pragmas``
-     will be used. Subclasses can override this attribute to change their default pragmas. To execute no pragmas,
-     pass an empty dict.
-    :type pragmas: dict
-
-    :param foreign_keys: a dictionary listing what columns are foreign keys. The keys of the dictionary are the columns
-     in this table, the values are the foreign table and column in 'table(column)' format. Example:
-     ``foreign_keys = {'file_id': 'files(uid)'}`` would be equivalent to SQL: ``FOREIGN KEY(file_id) REFERENCES files(uid)``
-     Note that this may require ``{'foreign_keys': 'ON'}`` to be in your ``pragmas``; however, that is present in the
-     default pragmas for this class.
-    :type foreign_keys:
-
-    :param verbose: controls verbosity of this class. Currently not relevant.
-    :type verbose: int
     """
 
     default_pragmas = {'foreign_keys': 'ON'}
@@ -258,17 +215,86 @@ class DatabaseTable(ABC):
         return self._primary_keys
 
     def __init__(self, connection, table, columns=None, primary_key_cols=None, modifiers=None,
-                 autocommit=False, commit_on_close=True, delete_existing_table=False, pragmas=None, foreign_keys=None,
-                 verbose=0):
+                 autocommit=False, commit_on_close=True, retries=0, retry_delay=1, delete_existing_table=False,
+                 pragmas=None, foreign_keys=None, verbose=0, use_logger=False):
         """
-        See class help.
+        :param connection: an object that serves as a connection to a database. Must have an ``execute`` method that returns
+         a cursor to that database.
+
+        :param table: the name of the table in the database to read
+        :type table: str
+
+        :param columns: a dictionary where the keys are the names of columns required in the table and the values are
+         strings giving the expected SQL type. Currently supported types are "date", "datetime", "integer", "boolean",
+         and "text". May be omitted if connecting to an existing table. If not omitted and connecting to an existing table,
+         the column names and types must match the existing table.
+        :type columns: dict
+
+        :param primary_key_cols: a tuple or list specifying by name which columns are to be primary keys. If the table is
+         being created they will be defined as PRIMARY KEY NOT NULL. May be omitted if connecting to an existing table. If
+         not omitted and connecting to an existing table, the list of primary keys must match the existing table.
+        :type primary_key_cols: list or tuple of str
+
+        :param modifiers: a dictionary where the keys are the names of columns and the values are strings giving any
+         SQL modifiers that that column should have, as a string. E.g. if you want the "file" column to be unique and not
+         null, then ``modifiers = {'file': 'UNIQUE NOT NULL'} would accomplish that. Not all columns are required to be
+         included in this dictionary; any that are absent are assumed to have no modifiers.
+        :type modifiers: dict
+
+        :param autocommit: optional, controls whether every operation on the table should be automatically committed.
+         Default is ``False``.
+        :type autocommit: bool
+
+        :param commit_on_close: optional, controls whether any pending operations to the table should automatically be
+         committed when closing the connection, either through the `close` method or when the class is automatically
+         closed by a ``with`` block. Default is ``True``.
+        :type commit_on_close: bool
+
+        :param retries: optional, how many times an SQL operation should be retried if there is an OperationalError,
+         which usually indicates that the database is locked due to another operation.
+        :type retries: int
+
+        :param retry_delay: optional, how long to wait between attempts. Note that this is a minimum delay, it may be
+         extended due to slower query operations.
+        :type retry_delay: int or float
+
+        :param delete_existing_table: optional, controls whether an existing table with the given name should be deleted.
+         Default is ``False``. Use with great caution!
+        :type delete_existing_table: bool
+
+        :param pragmas: a dictionary listing SQLite "PRAGMA" statements to execute immediately after the connection is
+         established. The keys should be the pragma names, the values the values they should be assigned. For example,
+         ``pragmas = {'foreign_keys': 'ON'}`` would execute ``PRAGMA foreign_keys = ON;`` immediately after the connection
+         is established. If this argument is not given, default pragmas defined in the class attribute ``default_pragmas``
+         will be used. Subclasses can override this attribute to change their default pragmas. To execute no pragmas,
+         pass an empty dict.
+        :type pragmas: dict
+
+        :param foreign_keys: a dictionary listing what columns are foreign keys. The keys of the dictionary are the columns
+         in this table, the values are the foreign table and column in 'table(column)' format. Example:
+         ``foreign_keys = {'file_id': 'files(uid)'}`` would be equivalent to SQL: ``FOREIGN KEY(file_id) REFERENCES files(uid)``
+         Note that this may require ``{'foreign_keys': 'ON'}`` to be in your ``pragmas``; however, that is present in the
+         default pragmas for this class.
+        :type foreign_keys:
+
+        :param verbose: controls verbosity of this class. Higher numbers print more debugging statements. Not used if
+         ``use_logger`` is ``True``.
+        :type verbose: int
+
+        :param use_logger: if ``True``, then any logging that this instance does will be done via the :mod:`logging`
+         module. It uses a logger that inherits all properties from the root logger, so by configuring the root logger,
+         you can configure what statements are printed and to where.
+        :type use_logger: bool
         """
         self._connection = connection
         self._setup_pragmas(pragmas)
         self._table_name = table
         self._autocommit = autocommit
         self._commit_on_close = commit_on_close
+        self._retries = retries
+        self._retry_delay = retry_delay
         self._verbose = verbose
+        self._use_logger = use_logger
 
         self._columns, self._primary_keys, self._modifiers, self._foreign_keys = self.setup_tables(columns, primary_key_cols, modifiers,
                                                                                                    foreign_keys,
@@ -303,23 +329,53 @@ class DatabaseTable(ABC):
 
     def log(self, level, msg, *fmtargs, **fmtkwargs):
         """
-       Logging method.
+        Logging method.
 
-       :param level: verbosity level required; self.verbose must be >= to this to print
-       :type level: int
+        :param level: verbosity level required; self.verbose must be >= to this to print
+        :type level: int
 
-       :param msg: The message to print. Will be formatted with the ``.format`` method before printing.
-       :type msg: str
+        :param msg: The message to print. Will be formatted with the ``.format`` method before printing.
+        :type msg: str
 
-       :param fmtargs: Positional arguments for the ``format`` method.
+        :param fmtargs: Positional arguments for the ``format`` method.
 
-       :param fmtkwargs: Keyword arguments for the ``format`` method.
+        :param fmtkwargs: Keyword arguments for the ``format`` method.
 
-       :return: None
-       """
-        if self._verbose >= level:
+        :return: None
+        """
+        msg = msg.format(*fmtargs, **fmtkwargs)
+        if self._use_logger:
+            if level < 0:
+                logger.critical(msg)
+            elif level == 0:
+                logger.warning(msg)
+            elif level == 1:
+                logger.info(msg)
+            elif level > 1:
+                logger.debug(msg)
+        elif self._verbose >= level:
             indent = '  ' * level
-            print(indent + msg.format(*fmtargs, **fmtkwargs))
+            print(indent + msg)
+
+    @staticmethod
+    def _format_key(k):
+        """
+        Format a values dict key to work in an SQL values role
+
+        For column names that are SQL reserved keywords (e.g. "or"), they can be enforced to be treated as column
+        names by surrounding with brackets ("[or]"). However, when passing a dictionary to self.sql for the "values"
+        keyword, the keys cannot have the brackets, so this extracts the key inside the brackets.
+        """
+        in_bracket = re.search(r'(?<=^\[)\w+(?=\]$)', k)
+        if in_bracket:
+            return in_bracket.group()
+
+        plain = re.search(r'^\w+$', k)
+        if not plain:
+            raise SQLColumnError('{} is not a valid column name. Column names must be alphanumerics, optionally '
+                                 'enclosed in brackets.'.format(k))
+        else:
+            return plain.group()
 
     def add_table_row(self, row_dict):
         """
@@ -334,16 +390,23 @@ class DatabaseTable(ABC):
         :return: None
         """
 
+        # One problem I ran into was when I was dealing with column names that matched reserved SQL words ("or" in this
+        # case). The way to allow that is to put the column names in brackets, however, then the :key syntax can't be
+        # used. So we have to take a dictionary with keys that include brackets where necessary, keep the brackets when
+        # naming the columns in the tablename() part of the command, but strip them for the :key values.
+
         row_dict = self._check_row_dict(row_dict)
 
         # Construct the SQL command that will insert them. According to
         # https://www.pythoncentral.io/introduction-to-sqlite-in-python/,
         # we can use a dictionary of values if the VALUE() part uses key formatting
         columns = list(row_dict.keys())
-        keys = ', '.join([':' + c for c in columns])
+        keys = ', '.join([':' + self._format_key(c) for c in columns])
         columns = ', '.join(columns)
         command_str = 'INSERT INTO {table}({columns}) VALUES({keys})'
-        self.sql(command_str, values=row_dict, columns=columns, keys=keys)
+        new_row_dict = {self._format_key(k): v for k, v in row_dict.items()}
+
+        self.sql(command_str, values=new_row_dict, columns=columns, keys=keys)
 
     def update_row(self, identifying_values, new_values):
         """
@@ -364,11 +427,14 @@ class DatabaseTable(ABC):
             raise ValueError('A column used in identifying values cannot be in new_values as well')
 
         where_crit_str = self._format_where_crit_string(identifying_values.keys())
-        set_str = self.__format_set_string(new_values.keys())
+        set_str = self._format_set_string(new_values.keys())
 
+        # Like add_table_row, the values dict needs to have any keys in brackets replaced with 
+        # unbracketed keys.
         vals = dict()
         vals.update(identifying_values)
-        vals.update(new_values)
+        for k, v in new_values.items():
+            vals[self._format_key(k)] = v
 
         self.sql('UPDATE {table} SET {set} WHERE {crit}', values=vals, set=set_str, crit=where_crit_str)
 
@@ -477,18 +543,29 @@ class DatabaseTable(ABC):
         sql_command = sql_command.format(table=self.table_name, **format_vals)
         sql_errors_to_catch = (sqlite3.OperationalError, sqlite3.IntegrityError)
         if values is None:
-            try:
-                cursor = self.connection.cursor().execute(sql_command)
-            except sql_errors_to_catch as err:
-                msg = err.args[0] + '\nSQL command was "{cmd}"'.format(cmd=sql_command)
-                raise err.__class__(msg) from None
+            exargs = []
+            err_fmt = '\nSQL command was "{cmd}"'
 
         else:
+            exargs = [values]
+            err_fmt = '\nSQL command was "{cmd}" with values = {vals}'
+
+        ntries = 0
+
+        while True:
             try:
-                cursor = self.connection.cursor().execute(sql_command, values)
+                cursor = self.connection.cursor().execute(sql_command, *exargs)
             except sql_errors_to_catch as err:
-                msg = err.args[0] + '\nSQL command was "{cmd}" with values = {vals}'.format(cmd=sql_command, vals=values)
+                if isinstance(err, sqlite3.OperationalError) and 'locked' in err.args[0] and ntries < self._retries:
+                    ntries += 1
+                    self.log(1, 'Operational error: waiting {} sec ({} retries remaining)',
+                             self._retry_delay, self._retries - ntries)
+                    time.sleep(self._retry_delay)
+                    continue
+                msg = err.args[0] + err_fmt.format(cmd=sql_command, vals=values)
                 raise err.__class__(msg) from None
+            else:
+                break
 
         if self._autocommit:
             # Not sure if this will cause a problem with commands that don't actually change anything
@@ -662,7 +739,9 @@ class DatabaseTable(ABC):
             else:
                 key_check = [k for k in modifiers.keys() if k not in columns]
                 if len(key_check) > 0:
-                    raise SQLSetupError('The following ')
+                    raise SQLSetupError('The following columns used in modifiers are not defined in columns: {}'.format(
+                        ', '.join(key_check)
+                    ))
 
         return not no_table
 
@@ -693,13 +772,16 @@ class DatabaseTable(ABC):
         # So to find the column names we need to find the part inside the parentheses, split it up by commas, then get
         # the first word in each section as the column name and the second as the type.
         match = re.search(r'(?<=\().+(?=\))', create_cmd).group()
-        column_defs = match.split(',')
+        
+        # credit https://stackoverflow.com/a/26634150 - need to avoid splitting on commas inside parentheses
+        # for constraints like CHECK(column in ("alpha", "bravo"))
+        column_defs = re.split(r',\s*(?![^()]*\))', match)
         columns = {c.split()[0]: c.split()[1] for c in column_defs if c.split()[0].upper() != 'FOREIGN'}
         primary_keys = [c.split()[0] for c in column_defs if 'PRIMARY KEY' in c]
 
         # If there's modifiers other than "PRIMARY KEY NOT NULL", we want to get those as well.
         no_prim_keys = match.replace('PRIMARY KEY NOT NULL', '')
-        column_defs = no_prim_keys.split(',')
+        column_defs = re.split(r',\s*(?![^()]*\))', no_prim_keys)
         mod_lists = {c.split()[0]: c.split()[2:] for c in column_defs if c.split()[0].upper() != 'FOREIGN'}
         modifiers = {k: ' '.join(v) for k, v in mod_lists.items() if len(v) > 0}
 
@@ -750,7 +832,15 @@ class DatabaseTable(ABC):
             if k in primary_keys:
                 col_def += ' PRIMARY KEY NOT NULL'
             if k in modifiers:
-                col_def += ' ' + modifiers[k].upper()
+                this_mod = modifiers[k]
+                # Uppercase most of the modifier, but don't uppercase string literals
+                # e.g. CHECK(column in ("alpha", "beta")) should not uppercase the 
+                # "alpha" and "beta"
+                upper_mod = this_mod.upper()
+                strings = re.findall(r'"[^"]+"', this_mod)
+                for substr in strings:
+                    upper_mod = upper_mod.replace(substr.upper(), substr)
+                col_def += ' ' + upper_mod
             column_names.append(col_def)
 
         return ', '.join(column_names)
@@ -809,9 +899,9 @@ class DatabaseTable(ABC):
         """
         return ' AND '.join(['{k} = :{k}'.format(k=k) for k in keys])
 
-    @staticmethod
-    def __format_set_string(keys):
-        return ', '.join('{k} = :{k}'.format(k=k) for k in keys)
+    @classmethod
+    def _format_set_string(cls, keys):
+        return ', '.join('{} = :{}'.format(k, cls._format_key(k)) for k in keys)
 
 
 class SQLiteDatabaseTable(DatabaseTable):
