@@ -1,5 +1,6 @@
 from __future__ import print_function, absolute_import, division, unicode_literals
 
+import cftime
 from collections import OrderedDict
 import contextlib
 import datetime as dt
@@ -231,6 +232,26 @@ def make_ncdim_helper(nc_handle, dim_name, dim_var, **attrs):
     return dim
 
 
+def make_nctime(timedata, base_date=dt.datetime(1970,1,1), time_units='seconds', calendar='gregorian',
+                base_date_nc_time=False):
+    allowed_time_units = ('seconds', 'minutes', 'hours', 'days')
+    if time_units not in allowed_time_units:
+        raise ValueError('time_units must be one of: {}'.format(', '.join(allowed_time_units)))
+
+    units_str = '{} since {}'.format(time_units, base_date.strftime('%Y-%m-%d %H:%M:%S'))
+    # date2num requires that the dates be given as basic datetimes. We'll handle converting Pandas timestamps, either
+    # as a series or datetime index, but other types will need handled by the user.
+    try:
+        date_arr = ncdf.date2num(timedata, units_str, calendar=calendar)
+    except TypeError:
+        dim_var = [d.to_pydatetime() for d in timedata]
+        date_arr = ncdf.date2num(dim_var, units_str, calendar=calendar)
+    if base_date_nc_time:
+        base_date = cftime.date2num(base_date, units_str, calendar=calendar)
+    time_info_dict = {'units': units_str, 'calendar': calendar, 'base_date': base_date}
+    return date_arr, time_info_dict
+
+
 def make_nctimedim_helper(nc_handle, dim_name, dim_var, base_date=dt.datetime(1970, 1, 1), time_units='seconds',
                           calendar='gregorian', **attrs):
     """
@@ -272,21 +293,11 @@ def make_nctimedim_helper(nc_handle, dim_name, dim_var, base_date=dt.datetime(19
     :return: the dimension object, and a dictionary describing the units, calendar, and base date of the time dimension
     :rtype: :class:`netCDF4.Dimension`, dict
     """
-    allowed_time_units = ('seconds', 'minutes', 'hours', 'days')
-    if time_units not in allowed_time_units:
-        raise ValueError('time_units must be one of: {}'.format(', '.join(allowed_time_units)))
-
-    units_str = '{} since {}'.format(time_units, base_date.strftime('%Y-%m-%d %H:%M:%S'))
-    # date2num requires that the dates be given as basic datetimes. We'll handle converting Pandas timestamps, either
-    # as a series or datetime index, but other types will need handled by the user.
-    try:
-        date_arr = ncdf.date2num(dim_var, units_str, calendar=calendar)
-    except TypeError:
-        dim_var = [d.to_pydatetime() for d in dim_var]
-        date_arr = ncdf.date2num(dim_var, units_str, calendar=calendar)
+    date_arr, time_info_dict = make_nctime(dim_var, base_date=base_date, time_units=time_units, calendar=calendar, base_date_nc_time=True)
+    attrs = attrs.copy()
+    attrs.update(time_info_dict)
     dim = make_ncdim_helper(nc_handle, dim_name, date_arr, **attrs)
-    time_info_dict = {'units': units_str, 'calendar': calendar, 'base_date': base_date}
-    return dim, time_info_dict
+    return dim
 
 
 def make_ncvar_helper(nc_handle, var_name, var_data, dims, **attrs):
