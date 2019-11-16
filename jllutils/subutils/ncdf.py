@@ -66,7 +66,60 @@ def smart_nc(name_or_handle, mode='r'):
             handle.close()
 
 
-def ncdf_to_dataframe(ncfile, target_dim=None, unmatched_vars='silent', top_vars_only=False, no_leading_slash=True):
+def dataframe_to_ncdf(df, ncfile, index_name=None, index_attrs=None, attrs=None):
+    """
+    Save a dataframe as a netCDF file
+
+    :param df: the dataframe to save
+    :type df: :class:`pandas.DataFrame`
+
+    :param ncfile: the path of the netCDF4 file to create, or a handle to an existing netCDF4 group.
+    :type ncfile: str or :class:`netCDF4.Group`
+
+    :param index_name: the name to give the variable created from the index. This name will always be used if given, but
+     only needs to be given if the index is not named.
+    :type index_name: str
+
+    :param index_attrs: a dict-like object specifying the attributes to give the index dimension variable. Note that if
+     the index is a DatetimeIndex, the "units", "calendar", and "base_date" attributes will be automatically provided.
+    :type index_attrs: dict-like
+
+    :param attrs: a dict-like object specifying the attributes for each column of the dataframe. The keys of the top
+     dict must correspond to column names, and the values will themselves be dicts specifying the attribute names and
+     values. Not all columns need exist; any columns absent from this dict will simply have no attributes.
+    :type attrs: dict-like
+
+    :return: None, writes a netCDF4 file.
+    """
+    if index_name is None:
+        if df.index.name is None:
+            raise TypeError('If the index of your dataframe is not named, then you must provide a value for index_name')
+        else:
+            index_name = df.index.name
+
+    if isinstance(df.index, pd.MultiIndex):
+        raise NotImplementedError('Dataframes with a multi index are not supported')
+
+    if index_attrs is None:
+        index_attrs = dict()
+    if attrs is None:
+        attrs = dict()
+
+    # Create a netcdf file, write the dimension. If it is a datetime index, write it as a time variable, otherwise,
+    # write it as a standard dimension.
+    with smart_nc(ncfile, 'w') as nch:
+        if isinstance(df.index, pd.DatetimeIndex):
+            dim = make_nctimedim_helper(nch, index_name, df.index, **index_attrs)
+        else:
+            dim = make_ncdim_helper(nch, index_name, df.index.to_numpy(), **index_attrs)
+
+        # Write each column of the data frame as a netCDF variable with the index as its dimension
+        for colname, data in df.items():
+            col_attrs = attrs[colname] if colname in attrs else dict()
+            make_ncvar_helper(nch, colname, data.to_numpy(), [dim], **col_attrs)
+        
+
+def ncdf_to_dataframe(ncfile, target_dim=None, unmatched_vars='silent', top_vars_only=False, no_leading_slash=True, fullpath=False):
     """
     Read in a netCDF file's 1D variables into a Pandas dataframe
 
@@ -114,7 +167,7 @@ def ncdf_to_dataframe(ncfile, target_dim=None, unmatched_vars='silent', top_vars
     with smart_nc(ncfile) as nh:
         _ncdf_to_df_internal(nh, dim_name=target_dim, dim_size=dim_size, var_dict=var_dict, att_dfs=attr_dfs_list,
                              top_vars_only=top_vars_only, unmatched_vars=unmatched_vars.lower(),
-                             no_leading_slash=no_leading_slash)
+                             no_leading_slash=no_leading_slash, fullpath=fullpath)
 
     var_df = pd.DataFrame(var_dict, index=dim_values)
     attr_df = pd.concat(attr_dfs_list, axis=1, sort=True)
@@ -132,17 +185,18 @@ def _find_1d_dim(ncfile, target_dim):
         else:
             dim_name = None
             if len(nh.dimensions) == 1:
-                return list(nh.dimensions.keys())[0]
-            for name, dim in nh.dimensions.items():
-                if dim.isunlimited():
-                    if dim_name is None:
-                        dim_name = name
-                    else:
-                        raise FindingDimensionError('Multiple unlimited dimensions ({}, {}) found'.format(dim_name, name))
+                dim_name = list(nh.dimensions.keys())[0]
+            else:
+                for name, dim in nh.dimensions.items():
+                    if dim.isunlimited():
+                        if dim_name is None:
+                            dim_name = name
+                        else:
+                            raise FindingDimensionError('Multiple unlimited dimensions ({}, {}) found'.format(dim_name, name))
 
-            if dim_name is None:
-                raise FindingDimensionError('Could not automatically determine which dimension to use as the index. '
-                                            'Pass a dimension name manually.')
+                if dim_name is None:
+                    raise FindingDimensionError('Could not automatically determine which dimension to use as the index. '
+                                                'Pass a dimension name manually.')
 
         dim_size = nh.dimensions[dim_name].size
         if dim_name in nh.variables:
@@ -159,7 +213,7 @@ def _find_1d_dim(ncfile, target_dim):
     return dim_name, dim_size, dim_values
 
 
-def _ncdf_to_df_internal(nch, dim_name, dim_size, var_dict, att_dfs, top_vars_only, unmatched_vars, no_leading_slash):
+def _ncdf_to_df_internal(nch, dim_name, dim_size, var_dict, att_dfs, top_vars_only, unmatched_vars, no_leading_slash, fullpath):
     path = nch.path
     dim_tuple = (dim_name,)
     for varname, variable in nch.variables.items():
@@ -174,7 +228,11 @@ def _ncdf_to_df_internal(nch, dim_name, dim_size, var_dict, att_dfs, top_vars_on
                 raise ValueError('Value "{}" for unmatched_vars is not valid. Must be "silent", "warn", or "error"')
             continue
 
-        full_varname = re.sub(r'//+', '/', path + '/' + varname)
+        if fullpath:
+            full_varname = re.sub(r'//+', '/', path + '/' + varname)
+        else:
+            full_varname = varname
+
         if no_leading_slash:
             full_varname = re.sub(r'^/', '', full_varname)
 
@@ -233,7 +291,7 @@ def make_ncdim_helper(nc_handle, dim_name, dim_var, **attrs):
 
 
 def make_nctime(timedata, base_date=dt.datetime(1970,1,1), time_units='seconds', calendar='gregorian',
-                base_date_nc_time=False):
+                base_date_nc_time=True):
     allowed_time_units = ('seconds', 'minutes', 'hours', 'days')
     if time_units not in allowed_time_units:
         raise ValueError('time_units must be one of: {}'.format(', '.join(allowed_time_units)))
@@ -244,7 +302,10 @@ def make_nctime(timedata, base_date=dt.datetime(1970,1,1), time_units='seconds',
     try:
         date_arr = ncdf.date2num(timedata, units_str, calendar=calendar)
     except TypeError:
-        dim_var = [d.to_pydatetime() for d in timedata]
+        if isinstance(timedata, np.ndarray):
+            dim_var = timedata.astype('datetime64[s]').tolist()
+        else:
+            dim_var = [d.to_pydatetime() for d in timedata]
         date_arr = ncdf.date2num(dim_var, units_str, calendar=calendar)
     if base_date_nc_time:
         base_date = cftime.date2num(base_date, units_str, calendar=calendar)
@@ -300,7 +361,51 @@ def make_nctimedim_helper(nc_handle, dim_name, dim_var, base_date=dt.datetime(19
     return dim
 
 
-def make_ncvar_helper(nc_handle, var_name, var_data, dims, **attrs):
+def make_nctimevar_helper(nc_handle, var_name, var_data, dims, base_date=dt.datetime(1970, 1, 1), time_units='seconds',
+                          calendar='gregorian', **attrs):
+    """
+    Create a netCDF variable for times and store the data converted to CF-compliant units simultaneously.
+
+    This function uses :func:`make_nctime` internally to convert the ``var_data`` to a CF-compliant array
+    then uses :func:`make_ncvar_helper` to create the variable.
+
+    :param nc_handle: the handle to a netCDF file open for writing, returned by :class:`netCDF4.Dataset`
+    :type nc_handle: :class:`netCDF4.Dataset`
+
+    :param var_name: the name to give the variable
+    :type var_name: str
+
+    :param var_data: the array to store in the netCDF variable.
+    :type var_data: :class:`numpy.ndarray` or list(datetimes)
+
+    :param dims: the dimensions to associate with this variable. Must be a collection of either dimension names or
+     dimension instances. Both types may be mixed. This works well with :func:`make_ncdim_helper`, since it returns the
+     dimension instances.
+    :type dims: list(:class:`netCDF4.Dimensions` or str)
+
+    :param base_date: the date and time to make the time coordinate relative to. The default is midnight, 1 Jan 1970.
+    :type base_date: datetime-like object
+
+    :param time_units: a string indicating what unit to use as the count of time between the base date and index date.
+     Options are 'seconds', 'minutes', 'hours', or 'days'.  This is more restrictive than the CF convention, but avoids
+     the potential pitfalls of using months or years.
+    :type time_units: str
+
+    :param calendar: one of the calendar types defined in the CF conventions document (section 4.4.1)
+    :type calendar: str
+    
+    :param attrs: keyword-value pairs defining attribute to attach to the dimension variable.
+
+    :return: the variable object
+    :rtype: :class:`netCDF4.Variable`
+    """
+    date_arr, time_info_dict = make_nctime(var_data, base_date=base_date, time_units=time_units, calendar=calendate, base_date_nc_time=True)
+    attrs = attrs.copy()
+    attrs.update(time_info_dict)
+    return make_ncvar_helper(nc_handle, var_name, date_arr, dims, make_cf_time_auto=False, **attrs)
+
+
+def make_ncvar_helper(nc_handle, var_name, var_data, dims, make_cf_time_auto=True, **attrs):
     """
     Create a netCDF variable and store the data for it simultaneously.
 
@@ -320,12 +425,20 @@ def make_ncvar_helper(nc_handle, var_name, var_data, dims, **attrs):
      dimension instances.
     :type dims: list(:class:`netCDF4.Dimensions` or str)
 
+    :param make_cf_time_auto: when this is ``True``, then any array with a datetime64 data type will be converted to
+     a CF-compliant time variable automatically. If ``False``, no conversion will be attempted, which may results in
+     a TypeError.
+    :type make_cf_time_auto: bool
+
     :param attrs: keyword-value pairs defining attribute to attach to the dimension variable.
 
     :return: the variable object
     :rtype: :class:`netCDF4.Variable`
     """
     dim_names = tuple([d if isinstance(d, str) else d.name for d in dims])
+    if np.issubdtype(var_data.dtype, np.datetime64) and make_cf_time_auto:
+        var_data, time_info_dict = make_nctime(var_data)
+        attrs.update(time_info_dict)
     var = nc_handle.createVariable(var_name, var_data.dtype, dimensions=dim_names)
     var[:] = var_data
     var.setncatts(attrs)

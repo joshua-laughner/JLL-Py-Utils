@@ -1,4 +1,5 @@
 import pandas as pd
+from .subutils import ncdf
 
 
 def interpolate_series_to(series, values, method='linear', axis=0, limit=None, limit_direction='forward',
@@ -10,5 +11,6 @@ def interpolate_series_to(series, values, method='linear', axis=0, limit=None, l
 
 
 # Monkey-patch these into pandas
+pd.DataFrame.to_netcdf = ncdf.dataframe_to_ncdf
 pd.DataFrame.interpolate_to = interpolate_series_to
 pd.Series.interpolate_to = interpolate_series_to
