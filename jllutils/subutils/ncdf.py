@@ -486,3 +486,51 @@ def add_dependent_file_hash(nc_handle, hash_att_name, dependent_file):
     """
     hash_hex = make_dependent_file_hash(dependent_file)
     nc_handle.setncattr(hash_att_name, hash_hex)
+
+
+class NcWrapper(object):
+    def __init__(self, dataset, no_masked=True):
+        if isinstance(dataset, str):
+            self._nc_handle = ncdf.Dataset(dataset)
+        else:
+            self._nc_handle = dataset
+        self._no_masked = no_masked
+
+    def __getitem__(self, item):
+        ds = self._nc_handle
+        if isinstance(ds, ncdf.Variable):
+            data = ds[item]
+            if self._no_masked:
+                try:
+                    return data.filled(np.nan)
+                except AttributeError:
+                    return data
+        elif item in ds.groups:
+            return self.__class__(ds.groups[item])
+        elif item in ds.variables:
+            return self.__class__(ds.variables[item])
+        else:
+            raise KeyError(item)
+
+    def __getattr__(self, item):
+        return getattr(self._nc_handle, item)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    def __repr__(self):
+        return self._nc_handle.__repr__()
+
+    def close(self):
+        if self._nc_handle is not None:
+            self._nc_handle.close()
+            self._nc_handle = None
+
+    def keys(self):
+        ds = self._nc_handle
+        group_keys = list(ds.groups.keys())
+        var_keys = list(ds.variables.keys())
+        return tuple(group_keys) + tuple(var_keys)
