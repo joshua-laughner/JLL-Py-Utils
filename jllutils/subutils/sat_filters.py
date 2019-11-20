@@ -96,6 +96,50 @@ class SatelliteFilter(object):
         return data_array
 
 
-class OCOLiteFilter(SatelliteFilter):
+class OCO2LiteFilter(SatelliteFilter):
+    def __init__(self, masked=False, fill=np.nan, op_type=None):
+        """
+        Instantiate the filter.
+
+        :param masked: controls whether the filter converts the data array into a masked array and masks bad quality
+         data (``True``) or fills it with a fill value (``False``, default).
+        :type masked: bool
+
+        :param fill: fill value to use if ``masked`` is ``False``.
+
+        :param op_type: what type of data to keep. This is a two-letter representation. The first letter can be 
+         "L" for land, "O" for ocean, or "X" for any. The second letter can be "N" for nadir, "G" for glint, 
+         "T" for target, or "X" for nadir, glint, or target. If not given, no filtering on operation/land-or-water
+         will be done.
+        """
+        super(OCO2LiteFilter, self).__init__(masked=masked, fill=fill)
+        self._op_type = op_type
+
     def get_mask(self, dataset):
-        return dataset['xco2_quality_flag'][:] > 0
+        qual_mask = dataset['xco2_quality_flag'][:] > 0
+        if self._op_type is None:
+            return qual_mask
+
+        op = self._op_type.upper()
+        if op[0] == 'L':
+            lw_indicator = (0,)
+        elif op[0] == 'O':
+            lw_indicator = (1,)
+        elif op[0] == 'X':
+            lw_indicator = (0,1,2,3)
+        else:
+            raise ValueError('"{}" is not a recognized first character for op_type'.format(op[0]))
+
+        if op[1] == 'N':
+            op_indicator = (0,)
+        elif op[1] == 'G':
+            op_indicator = (1,)
+        elif op[1] == 'T':
+            op_indicator = (2,)
+        elif op[1] == 'X':
+            # not including transition to/from target
+            op_indicator = (0,1,2)
+
+        lw_mask = ~np.isin(dataset['Sounding']['land_water_indicator'][:], lw_indicator)
+        op_mask = ~np.isin(dataset['Sounding']['operation_mode'][:], op_indicator)
+        return qual_mask | lw_mask | op_mask
