@@ -87,7 +87,7 @@ class SatelliteData(object):
         """
         return self._dataset.keys()
 
-    def get(self, *path):
+    def get(self, *path, do_filter=True):
         """
         Get a dataset from the file and apply filtering.
 
@@ -99,6 +99,9 @@ class SatelliteData(object):
             satdat.get('Meteorology', 'psurf')
 
         :type path: str
+
+        :param do_filter: controls whether to apply the filter. Must be given as keyword.
+        :type do_filter: bool
 
         :return: the dataset with values rejected by the filter (given when constructing the instance) either replaced
          with a fill value, or masked, depending on the value given to the ``masked`` keyword of the filter.
@@ -113,7 +116,8 @@ class SatelliteData(object):
         for p in path:
             data = data[p]
 
-        if self._filter is not None:
-            return self._filter.apply(data[tuple()], self._dataset)
+        data = data[tuple()]
+        if self._filter is not None and do_filter:
+            return self._filter.apply(data, self._dataset)
         else:
             return data
