@@ -718,7 +718,7 @@ def rolling_window(a, window):
     return np.lib.stride_tricks.as_strided(a, shape=shape, strides=strides, writeable=False)
 
 
-def york_linear_fit(x, std_x, y, std_y, max_iter=100, nboot=10):
+def york_linear_fit(x, std_x, y, std_y, max_iter=100, nboot=10, convergence_limit=1e-15, verbose=False):
     """
     Carries out an iterative, weighted linear regression.
 
@@ -747,6 +747,12 @@ def york_linear_fit(x, std_x, y, std_y, max_iter=100, nboot=10):
 
     :param nboot: number of bootstrap samplings to do. Not implemented currently.
     :type nboot: int
+
+    :param convergence_limit: absolute value that the difference between successive slopes must be below to converge.
+    :type convergence_limit: float
+
+    :param verbose: if ``True``, print information about each iteration
+    :type verbose: bool
 
     :return: dictionary containing the keys "slope", "yint", "slope_err", and "yint_err".
     :rtype: dict
@@ -800,7 +806,10 @@ def york_linear_fit(x, std_x, y, std_y, max_iter=100, nboot=10):
         b = ma.sum(w * beta * v)/ma.sum(w * beta * u)
 
         # 6.) Iterate until two successive slopes are within the convergence limit.
-        if np.abs(b - b_prev) < 1e-15:
+        if verbose:
+            print('b = {:.4g}, delta b = {:.4g}'.format(b, b - b_prev))
+
+        if np.abs(b - b_prev) < convergence_limit:
             break
         else:
             b_prev = b
