@@ -5,6 +5,7 @@ Helpful generic plotting functions.
 import matplotlib as mpl
 from matplotlib import pyplot as plt
 import numpy as np
+import string
 
 from .stats import hist2d
 
@@ -535,3 +536,67 @@ def _log_ticks(limits, tick_fxn, tick_label_fxn, base, fmt):
         raise ValueError('format "{}" not recognized'.format(fmt))
     tick_fxn(ticks)
     tick_label_fxn(ticklabels)
+
+
+def label_subplots(axs, fmt='({})', seq='lower', xpos=-0.1, ypos=0.95, style={'weight': 'bold'}):
+    """
+    Label subplot axes with letter labels
+
+    Useful for paper figures where subfigures need labels such as (a), (b), (c) etc.
+
+    :param axs: the axes to label, as a sequence of some kind. May also be a single axis.
+    :param fmt: a string specifying the format of the labels. Will be formatted with the new style format method, that
+     is, a pair of brackets, {}, will be replaced with the label.
+    :param seq: the sequence of characters to use for labeling each subfigure. May be the string "lower" for lowercase
+     ASCII letters, "upper" for upper case ASCII letters, "number" for numbers starting at 1, or any iterable.
+    :param xpos: the x-postiion of the text as a fraction of the x-axis. Negative places it to the left of the edge of
+     the plot.
+    :param ypos: the y-position of the text as a fraction of the y-axis.
+    :param style: keyword arguments to the :func:`~matplotlib.pyplot.text` function controlling the format of the text.
+     Note that the "ha" (horizontalalignment) keyword is already defined.
+    :return: an array of handles to the text objects in the same shape as the axes array
+    """
+    if isinstance(axs, np.ndarray) and axs.ndim > 1:
+        orig_shape = axs.shape
+        axs = axs.flatten()
+    elif isinstance(axs, plt.Axes):
+        orig_shape = None
+        axs = np.array([axs])
+    elif not all(isinstance(ax, plt.Axes) for ax in axs):
+        raise TypeError('axs must be either a matplotlib.pyplot.Axes instance or a sequence of such instances')
+    else:
+        orig_shape = np.shape(axs)
+    n_ax = np.size(axs)
+
+    if seq == 'lower':
+        seq = string.ascii_lowercase
+    elif seq == 'upper':
+        seq = string.ascii_uppercase
+    elif seq == 'number':
+        seq = range(1, len(axs)+1)
+    else:
+        try:
+            _ = [x for x in seq]
+        except TypeError:
+            raise TypeError('seq must be one of the strings "lower", "upper" or "number", or else an iterable')
+
+        if len(seq) < n_ax:
+            raise ValueError('Not enough labels: {} labels for {} axes'.format(len(seq), n_ax))
+
+    # Calculate the position for the text to be by default near the top outside left of the axes
+    handles = np.full(n_ax, None)
+    for i, (ax, label) in enumerate(zip(axs, seq)):
+        x1, x2 = ax.get_xlim()
+        dx = x2 - x1
+        x = x1 + xpos * dx
+        y1, y2 = ax.get_ylim()
+        dy = y2 - y1
+        y = y1 + ypos * dy
+
+        handles[i] = ax.text(x, y, fmt.format(label), ha='right', **style)
+
+    if orig_shape is None:
+        handles = handles.item()
+    else:
+        handles = handles.reshape(orig_shape)
+    return handles
