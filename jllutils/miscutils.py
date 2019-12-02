@@ -2,6 +2,96 @@
 Utilities that don't fit any other well defined category
 """
 import numpy as np
+import os
+
+
+class ProgressBar(object):
+    def __init__(self, end_count, style='bar+count', add_one=True, freq=1, prefix='', suffix='', auto_finish=True, width=72):
+        if len(prefix) > 0 and not prefix.endswith(' '):
+            prefix += ' '
+        if len(suffix) > 0 and not suffix.startswith(' '):
+            suffix = ' ' + suffix
+
+        self._end_count = end_count
+        self._style = style
+        self._add_one = 1 if add_one else 0
+        self._freq = freq
+        self._prefix = prefix
+        self._suffix = suffix
+        self._auto_finish = auto_finish
+        self._finished = False
+        self._width = width
+
+        self._last_num_char = -1
+
+    def print_bar(self, index):
+        index += self._add_one
+        if (index % self._freq == 0) or (index == self._end_count) or (index == self._add_one):
+            if self._style == 'count':
+                self._print_counter(index)
+            elif self._style == 'bar':
+                self._print_bar(index)
+            elif self._style.startswith('bar+'):
+                num_style = self._style.split('+')[1]
+                self._print_bar(index, numeric_style=num_style)
+            else:
+                raise NotImplementedError('Style "{}" not implemented'.format(self._style))
+
+        if index == self._end_count and self._auto_finish:
+            self.finish()
+
+    def _print_counter(self, index):
+        counter = self._format_counter(index)
+        fmt = '\r{pre}{counter}{suf}'
+        msg = fmt.format(pre=self._prefix, suf=self._suffix, counter=counter)
+        print(msg, end='')
+
+    def _print_bar(self, index, numeric_style='none'):
+        always_update = True
+        if numeric_style is None or numeric_style == 'none':
+            number_fxn = lambda index: ''
+            always_update = False
+        elif numeric_style == 'percent':
+            number_fxn = self._format_percent
+        elif numeric_style == 'count':
+            number_fxn = self._format_counter
+        else:
+            raise ValueError('numeric_style = "{}" not recognized'.format(numeric_style))
+
+        # save characters for the number, plus the open/close bracket and a space between the bar
+        # and number if the number exists, plus the prefix/suffix
+        n_reserved = len(number_fxn(0))
+        spacer = ''
+        if n_reserved > 0:
+            n_reserved += 1
+            spacer = ' '
+        bar_max_len = self._width - n_reserved - 2 - len(self._prefix) - len(self._suffix)
+        bar_fmt = '[{{:<{}}}]'.format(bar_max_len)
+        # compute how many progress characters to print. Only print if we need to update
+        nchar = int(float(index)/self._end_count * bar_max_len)
+        if always_update or nchar != self._last_num_char:
+            bar = bar_fmt.format('#'*nchar)
+            number = number_fxn(index)
+            line = '\r{pre}{bar}{spacer}{num}{suf}'.format(pre=self._prefix, bar=bar, spacer=spacer, num=number, suf=self._suffix)
+            print(line, end='')
+            
+    def _format_counter(self, index):
+        nchr = len(str(self._end_count))
+        fmt = r'{{idx:{}}}/{{end}}'.format(nchr)
+        return fmt.format(idx=index, end=self._end_count)
+
+    def _format_percent(self, index):
+        percent = float(index) / self._end_count * 100
+        return '{:6.2f}%'.format(percent)
+
+    def finish(self):
+        if not self._finished:
+            # print a newline so that the next message goes onto a new line
+            print('')
+            # record that we finished so that the user can manually call this after an auto-finish
+            # without finishing twice
+            self._finished = True
+        
 
 
 class ProgressBar(object):
@@ -312,3 +402,27 @@ def find_block(a, axis=0, ignore_masked=True, as_slice=False, block_value=None):
         blocks = [slice(*b) for b in blocks]
 
     return blocks, values
+
+
+def file_iter(files, make_abs=False):
+    """Iterate over file paths, yielding both the path and basename together
+
+    Parameters
+    ----------
+    files : Sequence[str]
+        a sequence of paths to files
+    make_abs : bool
+        whether to make the path to the file an absolute path or not
+
+    Yields
+    ------
+    str
+        path to the file, possibly forced to be an absolute path
+    str
+        the basename of the file
+    """
+    for f in files:
+        if make_abs:
+            f = os.path.abspath(f)
+        fbase = os.path.basename(f)
+        yield f, fbase
