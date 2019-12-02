@@ -2,6 +2,7 @@
 Utilities that don't fit any other well defined category
 """
 import numpy as np
+import os
 
 
 class ProgressBar(object):
@@ -312,3 +313,27 @@ def find_block(a, axis=0, ignore_masked=True, as_slice=False, block_value=None):
         blocks = [slice(*b) for b in blocks]
 
     return blocks, values
+
+
+def file_iter(files, make_abs=False):
+    """Iterate over file paths, yielding both the path and basename together
+
+    Parameters
+    ----------
+    files : Sequence[str]
+        a sequence of paths to files
+    make_abs : bool
+        whether to make the path to the file an absolute path or not
+
+    Yields
+    ------
+    str
+        path to the file, possibly forced to be an absolute path
+    str
+        the basename of the file
+    """
+    for f in files:
+        if make_abs:
+            f = os.path.abspath(f)
+        fbase = os.path.basename(f)
+        yield f, fbase
