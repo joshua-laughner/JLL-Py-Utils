@@ -443,6 +443,54 @@ def heatmap(x, y, xbins=10, ybins=10, plotfxn=plt.pcolormesh, zero_white=True, l
         return plotfxn(xbins, ybins, counts.T, **kwargs)
 
 
+def add_1to1(ax=None, limits='equal', **style):
+    """Add a 1:1 line to an axis
+
+    Parameters
+    ----------
+
+    ax : :class:`matplotlib.pyplot.Axes`
+        The axis to plot on. If `None`, the current axes are used.
+
+    leave_limits : bool
+        Controls how the x- and y- limits are handled. The default,
+        "keep", fixes the current limits at the time this function
+        is called. "equal" will make the x- and y- limits equal, with
+        the minimum limit being the minimum for either axis and likewise
+        for the maximum limit. "leave" will not set the limits.
+
+    **style
+        Keyword arguments for :func:`matplotlib.pyplot.plot`. Affects
+        the style of the 1:1 line.
+
+    Notes
+    -----
+
+    If the x- and y- limits are automatic, then plotting a 1:1 line will
+    typically expand them to create some space around the line. The default
+    behavior of `leave_limits` is to fix the current x- and y- limits so
+    that the 1:1 line touches the edge of the plot. This does mean that the
+    limits will no longer automatically expand if new data is plotted, so
+    it's usually best to call this function only after all other data have
+    been plotted.
+    """
+    if ax is None:
+        ax = plt.gca()
+
+    xl = ax.get_xlim()
+    yl = ax.get_ylim()
+    coords = [min(xl[0], yl[0]), max(xl[1], yl[1])]
+    ax.plot(coords, coords, **style)
+    if limits == 'keep':
+        ax.set_xlim(xl)
+        ax.set_ylim(yl)
+    elif limits == 'equal':
+        ax.set_xlim(coords)
+        ax.set_ylim(coords)
+    elif limits != 'leave':
+        raise ValueError('{} is not valid for `limits`. Allowed values are "keep", "equal", and "leave"'.format(limits))
+
+
 def x_log_ticks(ax, base=10, fmt='adapt'):
     """
     Set ticks on an x-axis assuming the current values are of a logarithm
