@@ -1166,3 +1166,35 @@ def _handle_nans(method, x, y, xerr=None, yerr=None):
         raise ValueError('Method to handle bad values must be one of "ignore", "error", or "drop"')
 
     return x, y, xerr, yerr
+
+
+def reldiff(a, b, denom='first'):
+    """Compute the fraction difference between two quantities
+    
+    Given two numbers, `a` and `b`, computes :math:`(b - a)/|a|`.
+
+    Parameters
+    ----------
+    
+    a, b : numeric
+        Values to compute the relative difference between.
+
+    denom : str
+        How the denominator is computed. The default, `"first"`, sets the denominator to `a`. Alternately,
+        `"mean"` will use the mean of a and b.
+
+    Returns
+    -------
+    
+    numeric
+        The fractional difference between a and b.
+    """
+    if denom == 'first':
+        d = np.abs(a)
+    elif denom == 'mean':
+        d = np.abs(0.5*(a+b))
+    else:
+        raise ValueError('Unrecognized value for `denom`: {}'.format(denom))
+
+    return (b - a)/d
+
