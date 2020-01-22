@@ -17,6 +17,90 @@ class IncompatibleOptions(Exception):
     pass
 
 
+class Subplots(object):
+    """Helper class to create subplots given the number of plots needed
+
+    This class is intended to simplify the case where you know how many 
+    subplots you need total and want to be able to create axes as needed.
+
+    Attributes
+    ----------
+    axes : numpy.ndarray
+        An array of the axes created. The value for a given index will
+        be None until the axis for that position is created, then it 
+        will be the handle to that axis.
+
+    Examples
+    --------
+    Plot each of the vectors in the list `things_to_plot` on its own
+    axis, using the default of two axis across::
+
+        sp = Subplots(len(things_to_plot))
+        for vec in things_to_plot:
+            ax = sp.next_subplot()
+            ax.plot(vec)
+    """
+    def __init__(self, nplots, nx=None, ny=None, figsize=(8,6)):
+        """Create a Subplots instance
+
+        Parameters
+        ----------
+        nplots : int
+            The total number of plots required.
+
+        nx, ny : int
+            How many subplots to use horizontally and vertically, respectivelly. 
+            One of `nx` and `ny` may be `None`, in which case it is computed for
+            you. Both may be specified; if the given array size is less than
+            `nplots`, a `ValueError` is raised. If both are `None`, then `nx` is
+            set to 2 and `ny` is computed.
+
+        figsize : tuple
+            The size of *each subplot* as a tuple, `(width, height)`, in inches.
+            The final size of the figure will be `nx*width` by `ny*height`.
+
+        Notes
+        -----
+        Creating a Subplots instance does not automatically instantiate all the
+        axes, each axis in created as needed. This way, if you need 10 plots but
+        want 3 across, the last row will not have 2 empty axes, just whitespace.
+        """
+        sizex, sizey = figsize
+        if nx is None and ny is None:
+            nx = 2
+        
+        if ny is None:
+            ny = self._calc_second_dim(nx, nplots)
+        elif nx is None:
+            nx = self._calc_second_dim(ny, nplots)
+        elif nx * ny < nplots:
+            raise ValueError('nx * ny is less then nplots; increase one or specify one as None to calculate it automatically')
+
+        self.nx = nx
+        self.ny = nplots // nx + ((nplots % nx) > 0)
+        self.fig = plt.figure(figsize=(sizex*self.nx, sizey*self.ny))
+        self.iplot = 0
+        self.axes = np.full([self.ny, self.nx], None)
+    
+    def next_subplot(self):
+        """Create the next subplot and return the handle to it
+
+        Returns
+        -------
+        matplotlib.axes._subplots.AxesSubplot
+            Handle to the newly created axes.
+        """
+        self.iplot += 1
+        ax = self.fig.add_subplot(self.ny, self.nx, self.iplot)
+        idx = np.unravel_index(self.iplot-1, self.axes.shape)
+        self.axes[idx] = ax
+        return ax
+
+    @staticmethod
+    def _calc_second_dim(dim1, total):
+        return total // dim1 + ((total % dim1) > 0)
+
+
 def create_twin_axes_with_color(twin='x', color2=None, color1=None, ax=None):
     """
     Create twinned axes where the axes are colored
