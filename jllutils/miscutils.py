@@ -3,6 +3,7 @@ Utilities that don't fit any other well defined category
 """
 import numpy as np
 import os
+import warnings
 
 
 class ProgressBar(object):
@@ -23,6 +24,63 @@ class ProgressBar(object):
         self._width = width
 
         self._last_num_char = -1
+
+    @classmethod
+    def iteron(cls, iterable, **class_kws):
+        """Print a progress bar while iterating over an object
+        
+        Since a progress bar is used almost exclusively inside a for loop, this method combines
+        iterating over an object and printing a progress bar for that iteration. 
+
+        Parameters
+        ----------
+
+        iterable
+            Any iterable object. The progress bar will have its end count set to the iterable's
+            length. See notes.
+
+        **class_kws
+            Keywords for the init method of this class. Note that `add_one` will be ignored because
+            it always needs to be `True` given how the iteration worked internally.
+
+
+        Returns
+        -------
+        
+        iterator
+            Iterates over the elements of `iterable`. For each element, the progress bar is automatically
+            updated.
+
+
+        Examples
+        --------
+
+        Given an iterable, `x`, the progress bar would be printed automatically::
+
+            xvec = np.arange(10)
+            for x in ProgressBar.iteron(x):
+                ...
+
+        Notes
+        -----
+
+        `len()` is used to figure out the length of the iterator to set the end count of the progress bar.
+        If `len()` cannot be used on your iterable (e.g. if it is a generator object or an array object that
+        `len` gives the wrong length for) then you should *either* (a) pass the correct end count as the
+        `end_count` keyword or (b) instantiate an instance of the class yourself and call the `print_bar`
+        method within the for loop to print the bar.
+        """
+        # Modifiy some of the keywords if needed
+        if 'end_count' not in class_kws:
+            class_kws['end_count'] = len(iterable)
+        if 'add_one' in class_kws:
+            warnings.warn('The add_one keyword is ignored by iteron')
+        class_kws['add_one'] = True
+
+        pbar = cls(**class_kws)
+        for i, x in enumerate(iterable):
+            pbar.print_bar(i)
+            yield x
 
     def print_bar(self, index):
         index += self._add_one
