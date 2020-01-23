@@ -3,6 +3,7 @@ Utilities that don't fit any other well defined category
 """
 import numpy as np
 import os
+import re
 import warnings
 
 
@@ -484,3 +485,91 @@ def file_iter(files, make_abs=False):
             f = os.path.abspath(f)
         fbase = os.path.basename(f)
         yield f, fbase
+
+
+def split_outside_group(s, splitchar, open='(', close=')'):
+    out = []
+    grp_cnt = 0
+    start = 0
+    for i, c in enumerate(s):
+        if c == splitchar and grp_cnt == 0:
+            out.append(s[start:i+1])
+            start = i+1
+        elif c == open:
+            grp_cnt += 1
+        elif c == close:
+            grp_cnt -= 1
+
+        if grp_cnt < 0:
+            raise ValueError('Given string has an unmatched {} at position {}'.format(close, i))
+
+    # Group count should be 0. If not, then there were more open characters than closing characters
+    if grp_cnt > 0:
+        raise ValueError('Given string had an unmatched {}'.format(open))
+
+    # Handle the last piece. Check that we haven't just added something, i.e. that the split character isn't the last
+    # one in the string. If it is, then we should add an empty element
+    if start == len(s) + 1:
+        out.append('')
+    else:
+        out.append(s[start:])
+
+    return out
+
+def parse_fortran_format(fmt_str, rtype='fmtstr', bare_fmt=False):
+    fmt_str = fmt_str.strip()
+    if not fmt_str.startswith('(') or not fmt_str.endswith(')'):
+        raise ValueError('The first and last non-whitespace characters of the format string must be open and close '
+                         'parentheses, respectively.')
+    fmt_parts = split_outside_group(fmt_str[1:-1], ',')
+    colspecs = []
+    types = []
+    format_str = ''
+
+    idx = 0
+    for part in fmt_parts:
+        if '(' in part:
+            match = re.match(r'(\d*)(\(.+\))', part)
+            repeats = 1 if len(match.group(1)) == 0 else int(match.group(1))
+            subfmt = match.group(2)
+            subfmt, subspecs, subtypes = parse_fortran_format(subfmt, rtype='all')
+
+            for i in range(repeats):
+                for start, stop in subspecs:
+                    colspecs.append((idx+start, idx+stop))
+                types += subtypes
+                format_str += subfmt
+                idx += stop
+        elif re.match(r'\d+x', part):
+            # In Fortran, specifiers like "1x" mean that n spaces do not contain information and are just spacers
+            nspaces = int(re.match(r'\d+', part, re.IGNORECASE).group())
+            format_str += nspaces * ' '
+            idx += nspaces
+        else:
+            match = re.match(r'(\d*)([a-z])(\d+)(\.\d+)?', part, re.IGNORECASE)
+            repeats, fmttype, width, prec = match.groups()
+            prec = '' if prec is None else prec
+            fmttype = 'd' if fmttype == 'i' else fmttype  # Fortran uses "i" for integers, python uses "d"
+
+            pyfmt = '{w}{p}{t}'.format(w=width, p=prec, t=fmttype)
+            if not bare_fmt:
+                pyfmt = '{:' + pyfmt + '}'
+            repeats = 1 if len(repeats) == 0 else int(repeats)
+            width = int(width)
+
+            for i in range(repeats):
+                colspecs.append((idx, idx+width))
+                types.append(pyfmt)
+                format_str += pyfmt
+                idx += width
+
+    if rtype == 'all':
+        return format_str, colspecs, types
+    elif rtype == 'fmtstr':
+        return format_str
+    elif rtype == 'colspecs':
+        return colspecs
+    elif rtype == 'types':
+        return types
+    else:
+        raise NotImplementedError('rtype == {}'.format(rtype))
