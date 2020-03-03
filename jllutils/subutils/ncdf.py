@@ -119,7 +119,8 @@ def dataframe_to_ncdf(df, ncfile, index_name=None, index_attrs=None, attrs=None)
             make_ncvar_helper(nch, colname, data.to_numpy(), [dim], **col_attrs)
         
 
-def ncdf_to_dataframe(ncfile, target_dim=None, unmatched_vars='silent', top_vars_only=False, no_leading_slash=True, fullpath=False):
+def ncdf_to_dataframe(ncfile, target_dim=None, unmatched_vars='silent', top_vars_only=False, no_leading_slash=True, fullpath=False,
+                      convert_time=True):
     """
     Read in a netCDF file's 1D variables into a Pandas dataframe
 
@@ -156,6 +157,10 @@ def ncdf_to_dataframe(ncfile, target_dim=None, unmatched_vars='silent', top_vars
      initial / removed. Set this to ``True`` to enable that initial slash.
     :type no_leading_slash: bool
 
+    :param convert_time: try to convert time variables automatically. Time variables are recognized if they have the
+     "calendar" attribute.
+    :type convert_time: bool
+
     :return: two dataframes, one with the data (variables are columns, dimension as index), one with attributes
      (attribute name will be the index)
     :rtype: :class:`pandas.DataFrame`, :class:`pandas.DataFrame`,
@@ -167,7 +172,7 @@ def ncdf_to_dataframe(ncfile, target_dim=None, unmatched_vars='silent', top_vars
     with smart_nc(ncfile) as nh:
         _ncdf_to_df_internal(nh, dim_name=target_dim, dim_size=dim_size, var_dict=var_dict, att_dfs=attr_dfs_list,
                              top_vars_only=top_vars_only, unmatched_vars=unmatched_vars.lower(),
-                             no_leading_slash=no_leading_slash, fullpath=fullpath)
+                             no_leading_slash=no_leading_slash, fullpath=fullpath, auto_time=convert_time)
 
     var_df = pd.DataFrame(var_dict, index=dim_values)
     attr_df = pd.concat(attr_dfs_list, axis=1, sort=True)
@@ -213,7 +218,7 @@ def _find_1d_dim(ncfile, target_dim):
     return dim_name, dim_size, dim_values
 
 
-def _ncdf_to_df_internal(nch, dim_name, dim_size, var_dict, att_dfs, top_vars_only, unmatched_vars, no_leading_slash, fullpath):
+def _ncdf_to_df_internal(nch, dim_name, dim_size, var_dict, att_dfs, top_vars_only, unmatched_vars, no_leading_slash, fullpath, auto_time):
     path = nch.path
     dim_tuple = (dim_name,)
     for varname, variable in nch.variables.items():
@@ -240,14 +245,19 @@ def _ncdf_to_df_internal(nch, dim_name, dim_size, var_dict, att_dfs, top_vars_on
             # This really should not happen
             raise VarnameConflictError('{} is already present in the variable dictionary'.format(full_varname))
 
-        if np.issubdtype(variable.dtype, np.floating):
+        # Read the attributes and put them into their own dataframe
+        this_att_dict = {name: [variable.getncattr(name)] for name in variable.ncattrs()}
+        this_att_df = pd.DataFrame(this_att_dict, index=[full_varname]).T
+       
+         
+        if 'calendar' in this_att_dict and auto_time:
+            vardat = variable[:].data
+            var_array = pd.DatetimeIndex(ncdf.num2date(vardat, this_att_dict['units'][0]))
+        elif np.issubdtype(variable.dtype, np.floating):
             var_array = variable[:].filled(np.nan)
         else:
             var_array = variable[:].data
         var_dict[full_varname] = var_array
-        # Read the attributes and put them into their own dataframe
-        this_att_dict = {name: [variable.getncattr(name)] for name in variable.ncattrs()}
-        this_att_df = pd.DataFrame(this_att_dict, index=[full_varname]).T
         att_dfs.append(this_att_df)
 
     if top_vars_only:
@@ -256,7 +266,7 @@ def _ncdf_to_df_internal(nch, dim_name, dim_size, var_dict, att_dfs, top_vars_on
     for group in nch.groups.values():
         _ncdf_to_df_internal(group, dim_name=dim_name, dim_size=dim_size, var_dict=var_dict, att_dfs=att_dfs,
                              top_vars_only=top_vars_only, unmatched_vars=unmatched_vars,
-                             no_leading_slash=no_leading_slash)
+                             no_leading_slash=no_leading_slash, auto_time=auto_time)
 
 
 def make_ncdim_helper(nc_handle, dim_name, dim_var, **attrs):
