@@ -540,6 +540,193 @@ class PolyFitModel(object):
             return 0.0
 
 
+class RunningMean(object):
+    """Compute a running mean.
+
+    This is valuable when you have a large number of large arrays to average
+    and do not need the individual arrays, so can save memory by doing a running
+    average that keeps track of the sum and weights only.
+    """
+    @property
+    def result(self):
+        """The (possibly weighted) average accumulated to this point
+        """
+        return self._sum / self._weights
+
+    def __init__(self, shape, dtype=np.float):
+        """
+        Parameters
+        ----------
+        shape : Sequence[int]
+            The shape of the array needed to store the average.
+
+        dtype
+            What data type to use for the running mean. Default is 64-bit float.
+        """
+        self._sum = np.zeros(shape, dtype=dtype)
+        self._weights = np.zeros(shape, dtype=dtype)
+
+    @classmethod
+    def from_first_values(cls, values, weights=1.0):
+        """Create a RunningMean instance from the first array of values going into the mean
+
+        Parameters
+        ----------
+
+        values : array-like
+            The first array of values to go into the running mean. That is, if you query 
+            `results` immediately on the result, you will get this array back.
+
+        weights : float or array
+            The weight to assign to the first value.
+
+        Returns
+        -------
+        RunningMean
+            The initialized `RunningMean` instance
+        """
+        inst = cls(values.shape, dtype=values.dtype)
+        inst.update(values, weights)
+        return inst
+        
+    def update(self, values, weights=1.0):
+        """Add an array of values to the running mean
+        
+        Parameters
+        ----------
+        
+        values : array-like
+            The values to add to the running mean
+
+        weights : float or array like
+            The weight(s) to assign to these values. 
+
+        Notes
+        -----
+            In the current version, only numpy arrays are supported
+            for values. You may need to convert Pandas dataframes,
+            xarray DataArrays, etc. to numpy arrays first.
+        """
+        self._sum += values
+        self._weights += weights
+
+
+class RunningStdDev(object):
+    """Compute a running mean.
+
+    This is valuable when you have a large number of large arrays to average
+    and do not need the individual arrays, so can save memory by doing a running
+    standard deviation that does not require the arrays to be concatenated.
+
+    Notes
+    -----
+        This implements Welford's algorithm. It currently only supports sample standard
+        deviation (N-1 in the denominator).
+    """
+    @property
+    def result(self):
+        """The standard deviation. If there have been fewer than 2 values added, this will be all NaNs.
+        """
+        if self._count < 2:
+            return np.full(self._m2.shape, np.nan)
+        else:
+            return np.sqrt(self._m2 / (self._count - 1))
+
+    def __init__(self, shape, dtype=np.float):
+        """
+        Parameters
+        ----------
+        shape : Sequence[int]
+            The shape of the array needed to store the average.
+
+        dtype
+            What data type to use for the running mean. Default is 64-bit float.
+        """
+        self._count = 0
+        self._mean = np.zeros(shape, dtype=dtype)
+        self._m2 = np.zeros(shape, dtype=dtype)
+
+    @classmethod
+    def from_first_values(cls, values):
+        """Create a RunningStdDev instance from the first array of values going into it
+
+        Parameters
+        ----------
+
+        values : array-like
+            The first array of values to go into the running mean. That is, if you query 
+            `results` immediately on the result, you will get this array back.
+
+        Returns
+        -------
+        RunningStdDev
+            The initialized `RunningStdDev` instance
+        """
+        inst = cls(values.shape, dtype=values.dtype)
+        inst.update(values)
+        return inst
+        
+    def update(self, values):
+        """Add an array of values to the running standard deviation
+        
+        Parameters
+        ----------
+        
+        values : array-like
+            The values to add to the running standard deviation
+
+        Notes
+        -----
+            In the current version, only numpy arrays are supported
+            for values. You may need to convert Pandas dataframes,
+            xarray DataArrays, etc. to numpy arrays first.
+        """
+        self._count += 1
+        delta = values - self._mean
+        self._mean += delta / self._count
+        delta2 = values - self._mean
+        self._m2 += delta * delta2
+
+
+class RunningMeanAndStd(object):
+    """Simultaneously compute a running mean and standard deviation
+    """
+    @property
+    def result(self):
+        """Gives the current mean and standard deviation.
+        """
+        return self._mean.result, self._std.result
+
+    def __init__(self, shape, dtype=np.float):
+        self._mean = RunningMean(shape, dtype=dtype)
+        self._std = RunningStdDev(shape, dtype=dtype)
+
+    @classmethod
+    def from_first_values(cls, values):
+        inst = cls(values.shape, dtype=values.dtype)
+        inst.update(values)
+        return inst
+
+    def update(self, values):
+        """Add an array of values to the running mean and standard deviation
+        
+        Parameters
+        ----------
+        
+        values : array-like
+            The values to add to the running mean and standard deviation
+
+        Notes
+        -----
+            In the current version, only numpy arrays are supported
+            for values. You may need to convert Pandas dataframes,
+            xarray DataArrays, etc. to numpy arrays first.
+        """
+        self._mean.update(values)
+        self._std.update(values)
+        
+
+
 def _rolling_input_helper(A, window, edges, force_centered):
     """
     Internal helper that verifies that all of the inputs are of the correct type and value
