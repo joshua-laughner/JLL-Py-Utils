@@ -1,3 +1,7 @@
+"""
+This module focuses on making HDF5 files easier to access, including finding variables within HDF5 files.
+"""
+
 import contextlib
 import h5py
 import re
@@ -12,22 +16,71 @@ class MultipleChildrenFoundError(Exception):
 
 @contextlib.contextmanager
 def smart_h5(name_or_handle, mode='r'):
-    """
-    Allow context managing an HDF5 file object or filename
+    """Allow context managing an HDF5 file object or filename
 
-    Use as a context manager, i.e. ``with smart_h5(...) as hobj:`` when you may have either a path to a HDF5 file or
-    an already open HDF5 file handle. In the first case, it will behave identically to
-    ``with h5py.File(...) as hobj:``, automatically closing the handle when the ``with`` block is exited. If given
-    an existing handle, it will not close the handle automatically.
+    Use as a context manager, i.e. `with smart_h5(...) as hobj:` when you may have either a path to a HDF5 file or
+    an already open HDF5 file handle. In the first case, it will behave identically to `with h5py.File(...) as hobj:`, 
+    automatically closing the handle when the ``with`` block is exited. If given an existing handle, it will not close 
+    the handle automatically.
 
-    :param name_or_handle: the path to the HDF5 file, or an already open file handle.
-    :type name_or_handle: str or :class:`h5py.File`
+    Parameters
+    ----------
+    name_or_handle : str or :class:`h5py.File`
+        the path to the HDF5 file, or an already open file handle. 
 
-    :param mode: the mode to open the file in. Only has an effect if passing a path; if a handle is given, then this
-     input is ignored and the mode of the existing file takes precedence.
-    :type mode: str
+    mode : str
+        the mode to open the file in. Only has an effect if passing a path; if a handle is given, then this input is 
+        ignored and the mode of the existing file takes precedence.
+        
+    Returns
+    -------
+    `contextlib._GeneratorContextManager`
+        context manager for a HDF5 file dataset.
+        
+    Warnings
+    --------
+    Because this returns a context manager it *cannot* be used outside a `with` block; that is, `f = smart_h5(...)` will
+    not work as expected.
+    
+    Examples
+    --------
+    >>> with smart_h5('demo.h5') as ds:
+    >>>     print(ds.keys())
+    ['temperature', 'pressure']
 
-    :return: context manager for a HDF5 file dataset.
+    This can also accept an already-open HDF5 file handle.
+
+    >>> f = h5py.File('demo.h5', 'r')
+    >>> with smart_h5(f) as ds:
+    >>>     print(ds.keys())
+    ['temperature', 'pressure']
+
+    This is useful in a function that might be called by directly or by another function. Consider a case where a
+    HDF5 file has a quality flag variables that indicates which data is safe to use where it has a value of 0. You
+    might want a function that automatically filters data read from such a file, and another than computes a derived
+    quantity from variables in that file:
+    
+    >>> def read_and_filter_h5_var(h5file, varname):
+    >>>     with smart_h5(h5file) as ds:
+    >>>         data = ds.variables[varname][:]
+    >>>         quality_flag = ds.variables['qual_flag'][:]
+    >>>         return data[quality_flag == 0]
+    >>>
+    >>> def compute_potential_temperature(h5file):
+    >>>     with smart_h5(h5file) as ds:
+    >>>         p = read_and_filter_h5_var(ds, 'pressure')
+    >>>         t = read_and_filter_h5_var(ds, 'temperature')
+    >>>     return t * (1000/p) ** 0.286
+
+    While we could just do:
+
+    >>> def compute_potential_temperature(h5file):
+    >>>     read_and_filter_h5_var(h5file, 'pressure')
+    >>>     read_and_filter_h5_var(h5file, 'temperature')
+    >>>     return t * (1000/p) ** 0.286
+
+    the former provides a slightly cleaner implementation because we're not opening and closing the HDF5 file multiple
+    times. This is more important if writing to the file.
     """
 
     if isinstance(name_or_handle, h5py.File):
@@ -45,13 +98,17 @@ def smart_h5(name_or_handle, mode='r'):
 
 
 def h5dump(file_or_handle):
-    """
-    Print a visual tree of groups and datasets in an HDF5 file.
+    """Print a visual tree of groups and datasets in an HDF5 file.
 
-    :param file_or_handle: the path or handle to the HDF5 file to dump
-    :type file_or_handle: str or :class:`h5py.File`
+    Parameters
+    ----------
+    file_or_handle : str or :class:`h5py.File`
+        the path or handle to the HDF5 file to dump
 
-    :return: None, print the tree to the screen.
+    Returns
+    -------
+    None
+        prints the tree to the screen
     """
     bullets = ('*', '-', '>')
 
@@ -68,56 +125,63 @@ def h5dump(file_or_handle):
 
 def h5find(file_or_handle, target_name, target_type='dataset', unique=True, return_type='path', read_h5=False,
            use_regex=False):
-    """
-    Find a group or dataset in an HDF5 file.
+    """Find a group or dataset in an HDF5 file.
 
-    :param file_or_handle: either the path to the HDF5 file or an instance of :class:`h5py.File` already open. However,
-     see notes under ``return_type`` about limitations of passing a file name.
-    :type file_or_handle: str or :class:`h5py.File`
+    Parameters
+    ----------
 
-    :param target_name: the name of the group/dataset to search for. If ``use_regex`` is ``False``, this is matched with
-     simple equality. If ``use_regex`` is ``True``, this is matched with ``re.match``.
-    :type target_name: str
+    file_or_handle : str or :class:`h5py.File`
+        either the path to the HDF5 file or an instance of :class:`h5py.File` already open. However, see notes under
+        `return_type` about limitations of passing a file name.
 
-    :param unique: if ``True`` then only one group or dataset may be matched. If more are matched, an error is raised;
-     if none, then ``None`` is returned.  If exactly one is matched, then the matched value is returned. See
-     ``return_type`` for more information.
-    :type unique: bool
+    target_name : str
+        the name of the group/dataset to search for. If `use_regex` is `False`, this is matched with simple
+        equality. If `use_regex` is `True`, this is matched with `re.match`.
 
-    :param target_type: controls what types to match. By default, only match datasets, not groups. This can be changed
-     to match groups by passing the string "group" or both datasets and groups with "both". Alternately, pass a type or
-     collection of types to serve as the second argument to :func:`isinstance`, only children matching those types will
-     be returned.
-    :type target_type: str or type
+    unique : bool
+        if `True` then only one group or dataset may be matched. If more are matched, an error is raised; if none, then
+        `None` is returned.  If exactly one is matched, then the matched value is returned. See `return_type` for more
+        information.
 
-    :param return_type: controls how the matched children are returned, in conjunction with ``read_h5`` and ``unique``.
-     Options are:
+    target_type : str or type
+        controls what types to match. By default, only match datasets, not groups. This can be changed to match groups
+        by passing the string "group" or both datasets and groups with "both". Alternately, pass a type or collection of
+        types to serve as the second argument to :func:`isinstance`, only children matching those types will be
+        returned.
+
+    return_type : str
+        controls how the matched children are returned, in conjunction with ``read_h5`` and ``unique``. Options are:
 
       * "path" - return the path(s) to the matching child(ren) (e.g. "/HDFEOS/SWATHS/N2O/Data Fields/N2O"). If
-        ``unique`` is ``False``, then a list of paths is returned. If ``unique`` is ``True``, then the matching path is
+        ``unique`` is ``False``, then a list of paths is returned. If `unique` is `True`, then the matching path is
         returned as a string.
-      * "object" - return the object(s) that matched, as a list if ``unique`` is ``False``, or the sole object
-        otherwise. If ``read_h5`` is ``True`` and the child matched is a dataset, the contents are read in and returned.
-        If ``read_h5`` is ``True`` and the child is not a Dataset, a string representation of it is returned. Otherwise,
+      * "object" - return the object(s) that matched, as a list if `unique` is ``False``, or the sole object
+        otherwise. If `read_h5` is `True` and the child matched is a dataset, the contents are read in and returned.
+        If `read_h5` is `True` and the child is not a Dataset, a string representation of it is returned. Otherwise,
         the h5py object (i.e. :class:`h5py.Dataset` or :class:`h5py.Group`) is returned.
       * "dict" - returns a dictionary where the keys are the paths and the values the objects. This is not modified when
-        ``unique`` is ``True``, however, and error is still raised if >1 child matches in that case.
+        `unique` is `True`, however, and an error is still raised if >1 child matches in that case.
 
      Because of how :class:`h5py.File` instances work, dataset or group objects pointing to a closed file cannot be
-     accessed. Therefore, if a filename is passed as ``file_or_handle``, then either ``return_type`` must be "path" or
-     ``read_h5`` must be ``True``. If not, then useless closed handles would be returned.
+     accessed. Therefore, if a filename is passed as `file_or_handle`, then either `return_type` must be "path" or
+     `read_h5` must be `True`. If not, then useless closed handles would be returned.
 
-    :type return_type: str
+    read_h5 : bool
+        causes datasets to be read in, and string representations of other types to be stored, rather than the original
+        h5py objects. See `return_type` for details.
 
-    :param read_h5: causes datasets to be read in, and string representations of other types to be stored, rather than
-     the original h5py objects. See ``return_type`` for details.
-    :type read_h5: bool
+    use_regex : bool
+        affects how `target_name` is matched against child names. See `target_name` for details.
 
-    :param use_regex: affects how ``target_name`` is matched against child names. See ``target_name`` for details.
-    :type use_regex: bool
+    Returns
+    -------
+    object
+        the matching child object(s) from the HDF5 file. See `return_type` for details.
 
-    :return: the matching child object(s) from the HDF5 file. See ``return_type`` for details.
-    :raises MultipleChildrenFoundError: if ``unique`` is ``True`` and multiple children are matched.
+    Raises
+    ------
+    MultipleChildrenFoundError
+        if `unique` is `True` and multiple children are matched.
     """
     if target_type in ('dataset', 'dset'):
         target_type = h5py.Dataset
@@ -180,6 +244,29 @@ def h5find(file_or_handle, target_name, target_type='dataset', unique=True, retu
 
 
 def h5getpath(h5handle, path):
+    """Get a group or dataset from an arbitrary path
+
+    Parameters
+    ----------
+    h5handle : :class:`h5py.File` or :class:`h5py.Group`
+        handle to an HDF5 File or Group.
+    path : list(str)
+        elements of the path to the dataset or group in the HDF5 file
+
+    Returns
+    -------
+    :class:`h5py.Group` or :class:`h5py.Dataset`
+        The group or dataset pointed to by the path
+
+    Examples
+    --------
+    Assume that "demo.h5" contains the "sst" dataset in the "oceans" group which is under the "data" group (i.e. the
+    path is data/oceans/sst):
+
+    >>> import h5py
+    >>> with h5py.File('demo.h5', 'r') as f:
+    >>>     sst_dset = h5getpath(f, ['data', 'oceans', 'sst'])
+    """
     f = h5handle
     for p in path:
         f = f[p]

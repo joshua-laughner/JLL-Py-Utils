@@ -1,3 +1,7 @@
+"""
+This module contains various functions to work more efficiently with netCDF files. It is particularly focused on making
+it easier to create netCDF files.
+"""
 from __future__ import print_function, absolute_import, division, unicode_literals
 
 import cftime
@@ -34,22 +38,65 @@ class DimensionMatchingError(Exception):
 
 @contextlib.contextmanager
 def smart_nc(name_or_handle, mode='r'):
-    """
-    Allow context managing a netCDF4 dataset or filename
+    """Allow context managing a netCDF4 dataset or filename
 
-    Use as a context manager, i.e. ``with smart_nc(...) as nh:`` when you may have either a path to a netCDF file or
+    Use as a context manager, i.e. `with smart_nc(...) as nh:` when you may have either a path to a netCDF file or
     an already open netCDF dataset handle. In the first case, it will behave identically to
-    ``with netCDF4.Dataset(...) as nh:``, automatically closing the handle when the ``with`` block is exited. If given
+    `with netCDF4.Dataset(...) as nh:`, automatically closing the handle when the ``with`` block is exited. If given
     an existing handle, it will not close the handle automatically.
 
-    :param name_or_handle: the path to the netCDF file, or an already open Dataset handle.
-    :type name_or_handle: str or :class:`netCDF4.Dataset`
+    Parameters
+    ----------
+    name_or_handle : str or :class:`netCDF4.Dataset`
+        the path to the netCDF file, or an already open Dataset handle.
+    mode : str
+        the mode to open the dataset in. Only has an effect if passing a path; if a handle is given, then this
+        input is ignored and the mode of the existing dataset takes precedence.
 
-    :param mode: the mode to open the dataset in. Only has an effect if passing a path; if a handle is given, then this
-     input is ignored and the mode of the existing dataset takes precedence.
-    :type mode: str
+    Returns
+    -------
+    :class:`contextlib._GeneratorContextManager`
+        context manager for a netCDF dataset.
 
-    :return: context manager for a netCDF dataset.
+    Examples
+    --------
+    >>> with smart_nc('demo.nc') as ds:
+    >>>     print(ds.variables.keys())
+    ['temperature', 'pressure']
+
+    This can also accept an already-open netCDF dataset handle.
+
+    >>> ncds = netCDF4.Dataset('demo.nc')
+    >>> with smart_nc(ncds) as ds:
+    >>>     print(ds.variables.keys())
+    ['temperature', 'pressure']
+
+    This is useful in a function that might be called by directly or by another function. Consider a case where a
+    netCDF file has a quality flag variables that indicates which data is safe to use where it has a value of 0. You
+    might want a function that automatically filters data read from such a file, and another than computes a derived
+    quantity from variables in that file:
+
+    >>> def read_and_filter_nc_var(ncfile, varname):
+    >>>     with smart_nc(ncfile) as ds:
+    >>>         data = ds.variables[varname][:]
+    >>>         quality_flag = ds.variables['qual_flag'][:]
+    >>>         return data[quality_flag == 0]
+    >>>
+    >>> def compute_potential_temperature(ncfile):
+    >>>     with smart_nc(ncfile) as ds:
+    >>>         p = read_and_filter_nc_var(ds, 'pressure')
+    >>>         t = read_and_filter_nc_var(ds, 'temperature')
+    >>>     return t * (1000/p) ** 0.286
+
+    While we could just do:
+
+    >>> def compute_potential_temperature(ncfile):
+    >>>     read_and_filter_nc_var(ncfile, 'pressure')
+    >>>     read_and_filter_nc_var(ncfile, 'temperature')
+    >>>     return t * (1000/p) ** 0.286
+
+    the former provides a slightly cleaner implementation because we're not opening and closing the netCDF file multiple
+    times. This is more important if writing to the file.
     """
 
     if isinstance(name_or_handle, ncdf.Dataset):
@@ -67,29 +114,47 @@ def smart_nc(name_or_handle, mode='r'):
 
 
 def dataframe_to_ncdf(df, ncfile, index_name=None, index_attrs=None, attrs=None):
-    """
-    Save a dataframe as a netCDF file
+    """Save a dataframe as a netCDF file
 
-    :param df: the dataframe to save
-    :type df: :class:`pandas.DataFrame`
+    Parameters
+    ----------
+    df : :class:`pandas.DataFrame`
+        the dataframe to save
 
-    :param ncfile: the path of the netCDF4 file to create, or a handle to an existing netCDF4 group.
-    :type ncfile: str or :class:`netCDF4.Group`
+    ncfile : str or :class:`netCDF4.Group`
+        the path of the netCDF4 file to create, or a handle to an existing netCDF4 group.
 
-    :param index_name: the name to give the variable created from the index. This name will always be used if given, but
-     only needs to be given if the index is not named.
-    :type index_name: str
+    index_name : str
+         the name to give the variable created from the index. This name will always be used if given, but only needs
+         to be given if the index is not named.
 
-    :param index_attrs: a dict-like object specifying the attributes to give the index dimension variable. Note that if
-     the index is a DatetimeIndex, the "units", "calendar", and "base_date" attributes will be automatically provided.
-    :type index_attrs: dict-like
+    index_attrs : dict
+        a dict-like object specifying the attributes to give the index dimension variable. Note that if the index is a
+        DatetimeIndex, the "units", "calendar", and "base_date" attributes will be automatically provided.
 
-    :param attrs: a dict-like object specifying the attributes for each column of the dataframe. The keys of the top
-     dict must correspond to column names, and the values will themselves be dicts specifying the attribute names and
-     values. Not all columns need exist; any columns absent from this dict will simply have no attributes.
-    :type attrs: dict-like
+    attrs : dict
+     a dict-like object specifying the attributes for each column of the dataframe. The keys of the top dict must
+     correspond to column names, and the values will themselves be dicts specifying the attribute names and values. Not
+     all columns need exist; any columns absent from this dict will simply have no attributes.
 
-    :return: None, writes a netCDF4 file.
+    Examples
+    --------
+
+    Usually a dataframe's index is not named, so we must provide the name to use in the netCDF file with the
+    `index_name` keyword.
+
+    >>> df = pd.DataFrame({'a': range(10), 'b': range(0, 100, 10)}, index=pd.date_range('2019-01-01', '2019-02-01', periods=10))
+    >>> dataframe_to_ncdf(df, 'demo.nc', index_name='time')
+
+    However, if the index is named, the `index_name` is not necessary:
+
+    >>> df.index.name = 'date'
+    >>> dataframe_to_ncdf(df, 'demo.nc')
+
+    Providing attributes:
+
+    >>> var_attrs = {'a': {'long_name': 'The A variable'}, 'b': {'long_name': 'The B variable'}}
+    >>> dataframe_to_ncdf(df, 'demo.nc', attrs=var_attrs)
     """
     if index_name is None:
         if df.index.name is None:
@@ -119,54 +184,66 @@ def dataframe_to_ncdf(df, ncfile, index_name=None, index_attrs=None, attrs=None)
             make_ncvar_helper(nch, colname, data.to_numpy(), [dim], **col_attrs)
         
 
-def ncdf_to_dataframe(ncfile, target_dim=None, unmatched_vars='silent', top_vars_only=False, no_leading_slash=True, fullpath=False):
-    """
-    Read in a netCDF file's 1D variables into a Pandas dataframe
+def ncdf_to_dataframe(ncfile, target_dim=None, unmatched_vars='silent', recurse=False, no_leading_slash=True,
+                      fullpath=None):
+    """Read in a netCDF file's 1D variables into a Pandas dataframe
 
     This function will scan a netCDF file for all 1D variables along a specific dimension and read them in as a Pandas
     dataframe. It will return a second dataframe with the attributes of the variables.  It will iterate through groups
-    and store their variables as well, unless ``top_vars_only`` is ``True``.
+    and store their variables as well, unless `top_vars_only` is `True`.
 
-    :param ncfile: the netCDF file to read. Alternatively a handle to a netCDF group.
-    :type ncfile: str or :class:`netCDF4.Dataset`.
+    Parameters
+    ----------
+    ncfile : str or :class:`netCDF4.Dataset`
+        the netCDF file to read. Alternatively a handle to a netCDF group.
 
-    :param target_dim: the name of the dimension to target - only variables that have this as their sole dimension will
-     be included. If this is not specified, then the following logic is applied:
+    target_dim : str
+        the name of the dimension to target - only variables that have this as their sole dimension will
+        be included. If this is not specified, then the following logic is applied:
 
-        1. Is there only one dimension? If yes, use that, if not:
-        2. Is there one (and only one) unlimited dimension? If so, that dimension is used. If there is >1, an error is
-           raised. If there are none, then raise an error.
+            1. Is there only one dimension? If yes, use that, if not:
+            2. Is there one (and only one) unlimited dimension? If so, that dimension is used. If there is >1, an error
+               is raised. If there are none, then raise an error.
 
-     Note that this only searches dimensions in the top level group. That is, if you specify the dimension 'time',
-     'time' must be in the top group's dimensions, and not any child groups.
-    :type target_dim: str
+        Note that this only searches dimensions in the top level group. That is, if you specify the dimension 'time',
+        'time' must be in the top group's dimensions, and not any child groups.
 
-    :param unmatched_vars: controls what happens if a variable with the wrong dimensions is found:
+    unmatched_vars : str
+        controls what happens if a variable with the wrong dimensions is found:
 
-        * "silent" (default) - skips that variable silently.
-        * "warn" - print a warning to stdout
-        * "error" - raise an exception
+            * "silent" (default) - skips that variable silently.
+            * "warn" - print a warning to stdout
+            * "error" - raise an exception
 
-    :type unmatched_vars: str
+    recurse : bool
+        set to `True` to only store variables in the top group; do not recurse into lower groups.
 
-    :param top_vars_only: set to ``True`` to only store variables in the top group; do not recurse into lower groups.
-    :type top_vars_only: bool
+    no_leading_slash : bool
+        If columns are named with their full path from the netCDF file, the initial / will be removed. Set this to
+        `True` to keep that initial slash.
 
-    :param no_leading_slash: by default, variables will be named with their full path in the netCDF file, but with the
-     initial / removed. Set this to ``True`` to enable that initial slash.
-    :type no_leading_slash: bool
+    fullpath : bool or None
+        Control whether columns are named by their full path or not. A full path would include the group names that
+        the variables fall under. The default is to use full names only if `recurse` is `True`. This can be set to
+        `True` or `False` to override that behavior.
 
-    :return: two dataframes, one with the data (variables are columns, dimension as index), one with attributes
-     (attribute name will be the index)
-    :rtype: :class:`pandas.DataFrame`, :class:`pandas.DataFrame`,
+    Returns
+    -------
+    :class:`pandas.DataFrame`
+        Data frame containing the 1D variables with the appropriate dimension from the specified netCDF file.
+    :class:`pandas.DataFrame`
+        Data frame containing the attributes for the variables; attribute names will be the index.
     """
 
     target_dim, dim_size, dim_values = _find_1d_dim(ncfile, target_dim)
     var_dict = OrderedDict()
     attr_dfs_list = []
+    if fullpath:
+        # use fullpaths if recursing, otherwise do not
+        fullpath = recurse
     with smart_nc(ncfile) as nh:
         _ncdf_to_df_internal(nh, dim_name=target_dim, dim_size=dim_size, var_dict=var_dict, att_dfs=attr_dfs_list,
-                             top_vars_only=top_vars_only, unmatched_vars=unmatched_vars.lower(),
+                             top_vars_only=not recurse, unmatched_vars=unmatched_vars.lower(),
                              no_leading_slash=no_leading_slash, fullpath=fullpath)
 
     var_df = pd.DataFrame(var_dict, index=dim_values)
@@ -260,26 +337,45 @@ def _ncdf_to_df_internal(nch, dim_name, dim_size, var_dict, att_dfs, top_vars_on
 
 
 def make_ncdim_helper(nc_handle, dim_name, dim_var, **attrs):
-    """
-    Create a netCDF dimension and its associated variable simultaneously
+    """Create a netCDF dimension and its associated variable simultaneously
 
     Typically in a netCDF file, each dimension should have a variable with the same name that defines the coordinates
     for that dimension. This function streamlines the process of creating a dimension with its associated variable.
 
-    :param nc_handle: the handle to a netCDF file open for writing, returned by :class:`netCDF4.Dataset`
-    :type nc_handle: :class:`netCDF4.Dataset`
+    Parameters
+    ----------
+    nc_handle : :class:`netCDF4.Dataset`
+        the handle to a netCDF file open for writing, returned by :class:`netCDF4.Dataset`
 
-    :param dim_name: the name to give both the dimension and its associated variable
-    :type dim_name: str
+    dim_name : str
+        the name to give both the dimension and its associated variable
 
-    :param dim_var: the variable to use when defining the dimension's coordinates. The dimensions length will be set
-     by the size of this vector. This must be a 1D numpy array or comparable type.
-    :type dim_var: :class:`numpy.ndarray`
+    dim_var : :class:`numpy.ndarray`
+        the variable data to use when defining the dimension's coordinates. The dimensions length will be set
+        by the size of this vector. This must be a 1D numpy array or comparable type.
 
-    :param attrs: keyword-value pairs defining attribute to attach to the dimension variable.
+    attrs
+        keyword-value pairs defining attribute to attach to the dimension variable.
 
-    :return: the dimension object
-    :rtype: :class:`netCDF4.Dimension`
+    Returns
+    -------
+    :class:`netCDF4.Dimension`
+        the dimension object.
+
+    See Also
+    --------
+    make_nctimedim_helper: for making time dimensions where the data needs converted from a datetime to an CF-compliant time variable
+
+    Examples
+    --------
+
+    Create latitude and longitude dimensions with "units" and "long_name" attributes:
+
+    >>> lon = np.arange(-180.0, 181.0, 5.0)
+    >>> lat = np.arange(-90.0, 91.0, 2.5)
+    >>> with netCDF4.Dataset('demo.nc', 'w') as nch:
+    >>>     make_ncdim_helper(nch, 'longitude', lon, units='degrees_east',  long_name='longitude')
+    >>>     make_ncdim_helper(nch, 'latitude',  lat, units='degrees_north', long_name='latitude')
     """
     if np.ndim(dim_var) != 1:
         raise ValueError('Dimension variables are expected to be 1D')
@@ -290,8 +386,84 @@ def make_ncdim_helper(nc_handle, dim_name, dim_var, **attrs):
     return dim
 
 
-def make_nctime(timedata, base_date=dt.datetime(1970,1,1), time_units='seconds', calendar='gregorian',
+def make_nctime(timedata, base_date=dt.datetime(1970, 1, 1), time_units='seconds', calendar='gregorian',
                 base_date_nc_time=True):
+    """Make a CF-compliant time array
+
+    CF conventions expect that time data is given as time since a given date
+    (http://cfconventions.org/Data/cf-conventions/cf-conventions-1.7/cf-conventions.html#time-coordinate), for example,
+    1 Jan 1971 could be given as 365 days since 1 Jan 1970, or 8760 hours since 1 Jan 1970, etc. This function will
+    convert most typical Python datetime representations into an array of CF-style values and return the necessary
+    netCDF attributes to include as metadata.
+
+    Parameters
+    ----------
+    timedata
+        A sequence of datetime values. Currently, supported types are:
+
+            * a list of :class:`datetime.datetime` objects
+            * a numpy array convertible to the `datetime64[s]` type, or
+            * a sequence of Pandas Timestamps (including a :class:`~pandas.DatetimeIndex`)
+
+        Note that only 1D sequences have been tested. 2D and higher sequences may not work.
+
+    base_date : class:`datetime.datetime`
+        The date that will be used as the reference, e.g. in "days since 1970-01-01" it would be 1 Jan 1970.
+
+    time_units : str
+        What unit to use as the counter, e.g. in "days since 1970-01-01" it would be "days". Allowed values are
+        "seconds", "minutes", "hours", and "days". "months" and "years" are NOT allowed because they defined in CF
+        conventions in ways that are easy to use improperly.
+
+    calendar : str
+        What calendar to use when computing the number of days/hours/minutes/seconds between two times. For modern
+        times, the default "gregorian" is recommended unless you have a specific reason not to use it.
+
+    base_date_nc_time : bool
+        The default behavior is to return the base date in the attribute dictionary in CF-type units. Set this keyword
+        to `False` to disable that behavior.
+
+    Returns
+    -------
+    :class:`numpy.ndarray`
+        The input `timedata` converted to CF-compliant values.
+    dict
+        A dictionary with the "units", "calendar" and "base_date" attributes that should be assigned to the netCDF
+        variable that will store the time data. These attributes are a necessary part of the CF convention for time
+        variables.
+
+    See Also
+    --------
+
+    make_nctimedim_helper: for creating time dimensions in netCDF files
+
+    Examples
+    --------
+
+    Convert a list of Python datetimes to a CF-compliant array. Note that the default unit of time is "seconds since
+    1970-01-01":
+
+    >>> from datetime import datetime as dtime
+    >>> timevec, timeattrs = make_nctime([dtime(1970,1,1), dtime(1970,5,1), dtime(1970,9,1), dtime(1971,1,1)])
+    >>> timevec
+    array([       0., 10368000., 20995200., 31536000.])
+    >>> timeattrs
+     {'units': 'seconds since 1970-01-01 00:00:00',
+      'calendar': 'gregorian',
+      'base_date': 0.0}
+
+    Convert a Pandas DatetimeIndex, using hours as the unit of time:
+
+    >>> import pandas as pd
+    >>> dt_index = pd.date_range('1970-01-01', '1971-01-01', freq='4MS')
+    >>> timevec, timeattrs = make_nctime(dt_index, time_units='days')
+    >>> timevec
+    array([  0., 120., 243., 365.])
+    >>> timeattrs
+    {'units': 'days since 1970-01-01 00:00:00',
+     'calendar': 'gregorian',
+     'base_date': 0.0}
+    """
     allowed_time_units = ('seconds', 'minutes', 'hours', 'days')
     if time_units not in allowed_time_units:
         raise ValueError('time_units must be one of: {}'.format(', '.join(allowed_time_units)))
@@ -399,41 +571,69 @@ def make_nctimevar_helper(nc_handle, var_name, var_data, dims, base_date=dt.date
     :return: the variable object
     :rtype: :class:`netCDF4.Variable`
     """
-    date_arr, time_info_dict = make_nctime(var_data, base_date=base_date, time_units=time_units, calendar=calendate, base_date_nc_time=True)
+    date_arr, time_info_dict = make_nctime(var_data, base_date=base_date, time_units=time_units, calendar=calendar, base_date_nc_time=True)
     attrs = attrs.copy()
     attrs.update(time_info_dict)
     return make_ncvar_helper(nc_handle, var_name, date_arr, dims, make_cf_time_auto=False, **attrs)
 
 
 def make_ncvar_helper(nc_handle, var_name, var_data, dims, make_cf_time_auto=True, **attrs):
-    """
-    Create a netCDF variable and store the data for it simultaneously.
+    """Create a netCDF variable and store the data for it simultaneously.
 
     This function combines call to :func:`netCDF4.createVariable` and assigning the variable's data and attributes.
+    
+    Parameters
+    ----------
 
-    :param nc_handle: the handle to a netCDF file open for writing, returned by :class:`netCDF4.Dataset`
-    :type nc_handle: :class:`netCDF4.Dataset`
+    nc_handle : :class:`netCDF4.Dataset`
+        the handle to a netCDF file open for writing, returned by :class:`netCDF4.Dataset`
 
-    :param var_name: the name to give the variable
-    :type var_name: str
+    var_name : str
+        the name to give the variable
 
-    :param var_data: the array to store in the netCDF variable.
-    :type var_data: :class:`numpy.ndarray`
+    var_data : :class:`numpy.ndarray`
+        the array to store in the netCDF variable.
 
-    :param dims: the dimensions to associate with this variable. Must be a collection of either dimension names or
-     dimension instances. Both types may be mixed. This works well with :func:`make_ncdim_helper`, since it returns the
-     dimension instances.
-    :type dims: list(:class:`netCDF4.Dimensions` or str)
+    dims : list(:class:`netCDF4.Dimensions` or str)
+        the dimensions to associate with this variable. Must be a collection of either dimension names or dimension
+        instances. Both types may be mixed. This works well with :func:`make_ncdim_helper`, since that returns the
+        dimension instances.
 
-    :param make_cf_time_auto: when this is ``True``, then any array with a datetime64 data type will be converted to
-     a CF-compliant time variable automatically. If ``False``, no conversion will be attempted, which may results in
-     a TypeError.
-    :type make_cf_time_auto: bool
+    make_cf_time_auto : bool
+        when this is `True`, then any array with a datetime64 data type will be converted to a CF-compliant time
+        variable automatically. If ``False``, no conversion will be attempted, which may result in a TypeError.
 
-    :param attrs: keyword-value pairs defining attribute to attach to the dimension variable.
+    attrs
+        keyword-value pairs defining attribute to attach to the dimension variable.
 
-    :return: the variable object
-    :rtype: :class:`netCDF4.Variable`
+    Returns
+    -------
+    :class:`netCDF4.Variable`
+        the variable object
+
+    Examples
+    --------
+
+    Create a variable for sea surface temperature that has dimensions of latitude and longitude, assuming those
+    dimensions already exist:
+
+    >>> import netCDF4, numpy as np
+    >>> sst = np.random.rand(91, 180)  # assuming 2 degree resolution in both dimensions
+    >>> with netCDF4.Dataset('demo.nc', 'a') as nch:  # use append as the mode if the dimensions exist in the file
+    >>>     make_ncvar_helper(nch, 'sst', sst, dims=['latitude', 'longitude'], units='K',
+    >>>                       long_name='sea surface temperature')
+
+    If you make the dimensions at the same time, it is convenient to use the dimension objects to specify the dimensions
+    in the call to make_ncvar_helper:
+
+    >>> import netCDF4, numpy as np
+    >>> lat = np.arange(-90., 91., 2)
+    >>> lon = np.arange(-180., 180., 2)
+    >>> sst = np.random.rand(lat.size, lon.size)
+    >>> with netCDF4.Dataset('demo.nc', 'w') as nch:
+    >>>     latdim = ncio.make_ncdim_helper(nch, 'lat', lat)
+    >>>     londim = ncio.make_ncdim_helper(nch, 'lon', lon)
+    >>>     make_ncvar_helper(nch, 'sst', sst, dims=[latdim, londim], units='K', long_name='sea surface temperature')
     """
     dim_names = tuple([d if isinstance(d, str) else d.name for d in dims])
     if np.issubdtype(var_data.dtype, np.datetime64) and make_cf_time_auto:
@@ -446,14 +646,22 @@ def make_ncvar_helper(nc_handle, var_name, var_data, dims, make_cf_time_auto=Tru
 
 
 def make_dependent_file_hash(dependent_file):
-    """
-    Create an SHA1 hash of a file.
+    """Create an SHA1 hash of a file.
 
-    :param dependent_file: the path to the file to hash.
-    :type dependent_file: str
+    Parameters
+    ----------
+    dependent_file : str
+        the path to the file to hash.
 
-    :return: the SHA1 hash
-    :rtype: str
+    Returns
+    -------
+    str
+        the SHA1 hash
+        
+    Examples
+    --------
+    >>> make_dependent_file_hash('demo.nc')                                                                                                                                                
+    'e65e1a1344aa1dc67702703a28966ea0b5294798'
     """
     hashobj = sha1()
     with open(dependent_file, 'rb') as fobj:
@@ -466,29 +674,129 @@ def make_dependent_file_hash(dependent_file):
 
 
 def add_dependent_file_hash(nc_handle, hash_att_name, dependent_file):
-    """
-    Add an SHA1 hash of another file as an attribute to a netCDF file.
+    """Add an SHA1 hash of another file as an attribute to a netCDF file.
 
     This is intended to create an attribute that list the SHA1 hash of a file that the netCDF file being created
     depends on.
 
-    :param nc_handle: a handle to the netCDF4 dataset to add the attribute to.
-    :type nc_handle: :class:`netCDF4.Dataset`
+    nc_handle : :class:`netCDF4.Dataset`
+        a handle to the netCDF4 dataset to add the attribute to.
 
-    :param hash_att_name: the name to give the attribute that will store the hash. It is recommended to include the
-     substring "sha1" so that it is clear what hash function was used.
-    :type hash_att_name: str
+    hash_att_name : str
+        the name to give the attribute that will store the hash. It is recommended to include the substring "sha1" so
+        that it is clear what hash function was used.
 
-    :param dependent_file: the file to generate the hash of.
-    :type dependent_file: str
+    dependent_file : str
+        the path to the file to generate the hash of.
 
-    :return: None
+    Examples
+    --------
+
+    Add a hash for a file containing satellite data that went into the netCDF file "demo.nc":
+
+    >>> import netCDF4
+    >>> with netCDF4.Dataset('demo.nc', 'a') as nch:
+    >>>     add_dependent_file_hash(nch, 'sat_data_sha1', 'satellite_data.h5')
     """
     hash_hex = make_dependent_file_hash(dependent_file)
     nc_handle.setncattr(hash_att_name, hash_hex)
 
 
 class NcWrapper(object):
+    """Provides an h5py-like interface to netCDF4 files
+
+    In Earth sciences, we often work with both HDF5 and netCDF files. In Python, the former is usually read with the
+    h5py package and the latter with netCDF4 or xarray packages. However, h5py and netCDF4 provide different interfaces
+    to their respective file types, which means writing code that is agnostic about which file type it is reading is
+    quite challenging. This class serves as a drop in replacement for :class:`netCDF4.Dataset` that provides an
+    interface similar to h5py for netCDF files.
+
+    Parameters
+    ----------
+    dataset : str
+        The path to the netCDF file to open
+
+    no_masked : bool
+        If `True` (default) then when returning data from a variable, masked values are replaced with NaNs and the
+        data is returned as a regular :class:`numpy.ndarray` rather than a masked array. If `False`, masked arrays
+        are returned.
+
+    Warnings
+    --------
+
+    Currently the way `no_masked` is implemented means it will only work retrieving variables with a float datatype. If
+    you expect to read other datatypes, then you will currently have to set `no_masked` to `False` and handle the masked
+    arrays yourself.
+
+    Examples
+    --------
+
+    Assume that "demo.nc" contains the "lat" and "lon" variables in the top level, and the "sst" variable in the "ocean"
+    group. First list the available variables and groups:
+
+    >>> f = NcWrapper('demo.nc')
+    >>> f.keys()
+    ('ocean', 'lat', 'lon')
+
+    Access the "lat" variable object (not the data):
+
+    >>> f['lat']
+    <class 'netCDF4._netCDF4.Variable'>
+    float64 lat(lat)
+    unlimited dimensions:
+    current shape = (91,)
+    filling on, default _FillValue of 9.969209968386869e+36 used
+
+    Access the "ocean" group, then list the groups and variables it contains:
+
+    >>> f['ocean']
+    <class 'netCDF4._netCDF4.Group'>
+    group /ocean:
+        dimensions(sizes):
+        variables(dimensions): float64 sst(lat,lon)
+        groups:
+    >>> f['ocean'].keys()
+    ('sst',)
+
+    Read in the sst variable:
+
+    >>> f['ocean']['sst'][:]
+    array([[288.79069806, 277.81187056, 291.48221822, ..., 297.99602979,
+        283.23083654, 288.35196569],
+       [274.94932278, 291.88013601, 289.1781155 , ..., 297.54587896,
+        285.10436042, 289.01523051],
+       [297.99372506, 285.2359472 , 294.12834898, ..., 291.61429846,
+        297.50201179, 292.88045642],
+       ...,
+       [285.39244074, 293.42634441, 275.57705086, ..., 294.31560397,
+        297.301303  , 289.94240014],
+       [287.1197515 , 291.43977814, 280.08993929, ..., 276.61085751,
+        283.6424262 , 278.17390702],
+       [280.50048818, 290.92144857, 284.18603123, ..., 285.939394  ,
+        277.45671306, 276.28845933]])
+
+    Access the "units" attribute of the "sst" variable. Note that this is not yet been homogenized with the h5py-style
+    interface:
+
+    >>> f['ocean']['sst'].units
+    'K'
+
+    Any call to an attribute for a netCDF dataset wrapped by this class that the class does not implement is passed
+    through to the underlying dataset:
+
+    >>> f['ocean']['sst'].ncattrs()
+    ['units', 'long_name']
+
+    Close the dataset as normal:
+
+    >>> f.close()
+
+    This wrapper also works in `with` blocks:
+
+    >>> with ncio.NcWrapper('/home/josh/scratch/demo.nc') as f:
+    >>>     print(f['ocean']['sst'].ncattrs())
+    ['units', 'long_name']
+    """
     def __init__(self, dataset, no_masked=True):
         if isinstance(dataset, str):
             self._nc_handle = ncdf.Dataset(dataset)
@@ -525,11 +833,20 @@ class NcWrapper(object):
         return self._nc_handle.__repr__()
 
     def close(self):
+        """Close the open netCDF file
+        """
         if self._nc_handle is not None:
             self._nc_handle.close()
             self._nc_handle = None
 
     def keys(self):
+        """List the available keys for this dataset - includes both groups and variables.
+
+        Returns
+        -------
+        tuple
+            the group and variable keys. Group keys are always listed first.
+        """
         ds = self._nc_handle
         group_keys = list(ds.groups.keys())
         var_keys = list(ds.variables.keys())
