@@ -39,55 +39,56 @@ class FittingDataError(FittingError):
 
 
 class BootstrapSampler(object):
-    """
-    A convenience wrapper around ``bootstrap_sample``.
+    """A convenience wrapper around `bootstrap_sample`.
 
     This class allows you to create an instance that stores the data to sample and a default sample size, which may be
     convenient if doing a large number of samples.
-
-    :param data: the data to sample. Data will always be sampled along the first dimension, so if ``data`` is N-D,
-     the samples will also be N-D.
-    :type data: array-like
-
-    :param flat: convenience option; set to ``True`` to flatten the data to 1-D internally.
-    :type flat: bool
-
-    :param with_replacement: controls whether the data sampling will be done with or without replacement. When
-     ``True``, a data point may be chosen more than once in a single sample. If ``False``, a data point will be
-     chosen exactly once.
-    :type with_replacement: bool
-
-    :param default_sample_size: if given, then calling the ``sample`` or ``run_bootstrap`` methods without a sample
-     size specified will use this size. If not given here, then it *must* be specified when calling those methods.
-    :type default_sample_size: int
-
-    :param sampling_fxn: a function that will be called on the samples when using ``run_bootstrap``. The function
-     must accept an array as the sole input. The return values from the function may be any form, and must be
-     specified by the ``rvalues`` parameter.
-    :type sampling_fxn: callable
-
-    :param rvalues: this parameter specifies how many values the sampling function returns and whether they should
-     be stored in an array or a dictionary.
-
-     If ``rvalues`` is an integer, it must indicate how many values are returned by ``sampling_fxn``. In this form,
-     ``run_bootstrap`` will store the results from the sampling as an ngroups-by-rvalues array. That is, the first
-     row will be the values resulting from calling ``sampling_fxn`` on the first sample group, the second row for
-     the second sampling group and so on.
-
-     If ``rvalues`` is a list or tuple, then the return values from ``sampling_fxn`` will be stored in a dictionary
-     and ``rvalues`` is taken to give dictionary keys to use. E.g. if ``rvalues`` is ``('slope', 'int')`` then the
-     first outputs from ``sampling_fxn`` will be stored in the array under the ``'slope'`` key and the second under
-     the ``'int'`` key.
-
-    :type rvalues: int, list, or tuple
-
-    :param rfill: the fill value to use when initializing the arrays to store the return values from
-     ``sampling_fxn``. This implicitly sets the data type of these array. At present there is no way to specify
-     separate types for different keys when ``rvalue`` implied storing data as a dictionary.
-    :type rfill: any
     """
     def __init__(self, data, flat=False, with_replacement=True, default_sample_size=None, sampling_fxn=None,
                  rvalues=1, rfill=np.nan):
+        """
+        Parameters
+        ----------
+        data : array-like
+            The data to sample. Data will always be sampled along the first dimension, so if `data` is N-D,
+            the samples will also be N-D.
+
+        flat : bool
+            Convenience option; set to `True` to flatten the data to 1-D internally.
+
+        with_replacement : bool
+            Controls whether the data sampling will be done with or without replacement. When `True`, a data 
+            point may be chosen more than once in a single sample. If `False`, a data point will be chosen 
+            exactly once.
+
+        default_sample_size : int
+            If given, then calling the `sample` or `run_bootstrap` methods without a sample size specified 
+            will use this size. If not given here, then it *must* be specified when calling those methods.
+
+        sampling_fxn : callable
+            A function that will be called on the samples when using `run_bootstrap`. The function must accept an 
+            array as the sole required input. The return values from the function may be any form, and must be
+            specified by the `rvalues` parameter.
+
+        rvalues : int, list, or tuple
+            This parameter specifies how many values the sampling function returns and whether they should be stored 
+            in an array or a dictionary.
+
+            If `rvalues` is an integer, it must indicate how many values are returned by `sampling_fxn`. In this form,
+            `run_bootstrap` will store the results from the sampling as an ngroups-by-rvalues array. That is, the first
+            row will be the values resulting from calling `sampling_fxn` on the first sample group, the second row for
+            the second sampling group and so on.
+
+            If `rvalues` is a list or tuple, then the return values from `sampling_fxn` will be stored in a dictionary
+            and `rvalues` is taken to give dictionary keys to use. E.g. if `rvalues` is `('slope', 'int')` then the
+            first outputs from `sampling_fxn` will be stored in the array under the `'slope'` key and the second under
+            the `'int'` key.
+
+        rfill
+            The fill value to use when initializing the arrays to store the return values from `sampling_fxn`. This 
+            implicitly sets the data type of these array. At present there is no way to specify separate types for different 
+            keys when `rvalue` implied storing data as a dictionary.
+        """
         self._data = data if not flat else data.flatten()
         self._replacement = with_replacement
         self._sample_size = default_sample_size
@@ -103,15 +104,19 @@ class BootstrapSampler(object):
         self._sampling_fxn = sampling_fxn
 
     def sample(self, sample_size=None):
-        """
-        Get a bootstrap sample group.
+        """Get a bootstrap sample group.
 
-        :param sample_size: how large each sample should be. Doesn't need to be given if the default sample size was
-         specified when creating the instance. If a value is given here, it overrides the default sample size.
-        :type sample_size: int
+        Parameters
+        ----------
+        
+        sample_size : int
+            How large each sample should be. Doesn't need to be given if the default sample size was
+            specified when creating the instance. If a value is given here, it overrides the default sample size.
 
-        :return: the bootstrap sample group.
-        :rtype: array-like
+        Returns
+        -------
+        array-like
+            the bootstrap sample group.
         """
         if sample_size is None:
             if self._sample_size is None:
@@ -123,24 +128,28 @@ class BootstrapSampler(object):
         return bootstrap_sample(self._data, sample_size, with_replacement=self._replacement)
 
     def run_bootstrap(self, n_groups, sample_size=None):
-        """
-        Run a series of bootstrap samplings on the data
+        """Run a series of bootstrap samplings on the data
 
         This method calls the sampling function specified when creating this instance on each sample group created by
         the bootstrapping and returns the collection of results as either a 2D array or dictionary of 1D arrays,
-        depending on the value of ``rvalues`` when this instance was created. ``sampling_fxn`` must have been given
+        depending on the value of `rvalues` when this instance was created. `sampling_fxn` must have been given
         when the instance was created.
 
-        :param n_groups: how many bootstrapping sample groups to create.
-        :type n_groups: int
+        Parameters
+        ----------
 
-        :param sample_size: how large each sample should be. Doesn't need to be given if the default sample size was
-         specified when creating the instance. If a value is given here, it overrides the default sample size.
-        :type sample_size: int
+        n_groups : int
+            How many bootstrapping sample groups to create.
 
-        :return: the results of the bootstrap sampling as a 2-D array (ngroups-by-nreturn_vals) if ``rvalues`` was an
-         integer when the instance was created or a dictionary of 1-D arrays if ``rvalues`` was a list/tuple.
-        :rtype: :class:`numpy.ndarray` or dict
+        sample_size : int
+            How large each sample should be. Doesn't need to be given if the default sample size was
+            specified when creating the instance. If a value is given here, it overrides the default sample size.
+
+        Returns
+        -------
+        numpy.ndarray or dict
+            the results of the bootstrap sampling as a 2-D array (ngroups-by-nreturn_vals) if `rvalues` was an
+            integer when the instance was created or a dictionary of 1-D arrays if `rvalues` was a list/tuple.
         """
         if self._sampling_fxn is None:
             raise BootstrapError('Must have a sampling function to use run_bootstrap')
@@ -170,25 +179,30 @@ class BootstrapSampler(object):
 
 
 def bootstrap_sample(data, sample_size, with_replacement=True):
-    """
-    Perform bootstrap sampling on an array of data.
+    """Perform bootstrap sampling on an array of data.
 
-    Selects N points from ``data`` and returns them. If ``data`` is multidimensional, the selection happens along the
-    first dimension, e.g. if ``data`` is 2D, then N rows are returned. To select individual points from a
+    Selects N points from `data` and returns them. If `data` is multidimensional, the selection happens along the
+    first dimension, e.g. if `data` is 2D, then N rows are returned. To select individual points from a
     multidimensional array, flatten it before passing.
 
-    :param data: data to sample. Must support numpy-style indexing.
-    :type data: array-like
+    Parameters
+    ----------
 
-    :param sample_size: the number of samples to generate for each bootstrap. If given as a value between [0, 1), it
-     is interpreted as the fraction of the data set to sample.
-    :type sample_size: int or float
+    data : array-like
+        Data to sample. Must support numpy-style indexing.
 
-    :param with_replacement: if ``True``, then any single sample may be chosen multiple times. If ``False``, a sample
-     will be chosen at most once.
-    :type with_replacement: bool
+    sample_size : int or float
+        The number of samples to generate for each bootstrap. If given as a value between [0, 1), it
+        is interpreted as the fraction of the data set to sample.
 
-    :return: the sample array.
+    with_replacement : bool
+        If `True`, then any single sample may be chosen multiple times. If `False`, a sample
+        will be chosen at most once.
+
+    Returns
+    -------
+    array-like
+        the sample array.
     """
     if 0 <= sample_size < 1:
         sample_size = int(sample_size * np.shape(data)[0])
@@ -206,116 +220,170 @@ def bootstrap_sample(data, sample_size, with_replacement=True):
 
 
 class PolyFitModel(object):
-    """
-        Common interface to polynomial fitting methods
+    """Common interface to polynomial fitting methods
 
-        This class provides a common interface to fit 2D data with or without errors associated with the x and y values.
-        Instantiating the class automatically does the fitting, and the result is stored in the new instance. Instantiation
-        requires the x and y values to fit be given, and, if the model chosen requires it, error for the x and/or y values
-        as well. The model can be chosen with the ``model`` keyword. Current options are:
+    This class provides a common interface to fit 2D data with or without errors associated with the x and y values.
+    Instantiating the class automatically does the fitting, and the result is stored in the new instance. Instantiation
+    requires the x and y values to fit be given, and, if the model chosen requires it, error for the x and/or y values
+    as well. The model can be chosen with the `model` keyword. Current options are:
+
+        * 'york' - use :func:`york_linear_fit` (from this module).
+        * 'y-resid' or 'y_resid' - do least-squares fitting of a straight line to the data, without weighting.
+        * 'y-resid-n' or 'y_resid_n' - do least-squares fitting of a polynomial with degree n to the data, without
+          weighting.
+        * 'ols' - do ordinary least-squares fitting of the data with :mod:`statsmodels`. Unlike y-resid, this
+          includes more information in the `results` property, like p-values.
+        * 'ols0' - do ordinary least-squares fitting with :mod:`statsmodels`, with no intercept.
+        * any function that takes a minimum of four arguments (`x`, `y`, `xerr`, and `yerr`, where `xerr` and
+          `yerr` are the error/uncertainty in `x` and `y`) and returns three values:
+            - the polynomial coefficients as a 1D array-like object, starting from the x**0 term
+            - the errors in the coefficients, also as a 1D array-like object. If errors are not computed, they
+              should be NaNs.
+            - any object containing more detail about the fitting result, e.g. a dictionary or custom class
+
+    If your chosen model function has additional keyword arguments, you can pass them as a dict with the
+    `model_opts` input.
+
+    Since this class is for polynomial fitting, the result is stored as a list of coefficients, where for:
+
+    .. math::
+        p(x) = a_0 + a_1 x + a_2 x^2 + ... + a_n x^n
+
+    the coefficients :math:`a_0`, :math:`a_1`, etc. are stored in the `coeffs` property as a list. Only as many
+    coefficients as given by the model are stored, so if the model only returns :math:`a_0` and :math:`a_1`, then
+    `coeffs` will only have two elements and model.coeffs[2] will raise an `IndexError`.  If you have an
+    application where you want the coefficient for a given power of :math:`x` regardless of whether that power is
+    used in the model, the `get_any_coeff` method will do that.
+
+    The :math:`a_0` and :math:`a_1` coefficients are accessible through the special properties `yint` and
+    `slope`. These will always return a value, if not used in the model, 0.0 will be returned.
+
+    Once created, instances of this class can be used to predict :math:`y` values for new :math:`x` values.
+    This is done with the `predict` method, or by calling the instance itself, e.g.::
+
+        >>> x = np.arange(10)
+        >>> y = 2 * x
+        >>> sigma = 0.1 * np.ones_like(x)
+        >>> fit = PolyFitModel(x, y, sigma, sigma, model='york')
+
+        >>> xprime = np.arange(100,110)
+        # Both of the following are equivalent
+        >>> yprime_1 = fit.predict(xprime)
+        >>> yprime_2 = fit(xprime)
+        >>> yprime_1 == yprime_2
+        True
+    """
+
+    @property
+    def coeffs(self):
+        """Polynomial coefficients for the fit, starting from the x**0 term.
+
+        Returns
+        -------
+        numpy.ndarray
+            Coefficients, starting with the lowest power term.
+        """
+        return self._coeffs
+
+    @property
+    def coeff_errors(self):
+        """Errors in the polynomial coefficients for the fit.
+
+        Returns
+        -------
+        numpy.ndarray
+            Errors in coefficients, starting with the lowest power term.
+        """
+        return self._coeff_errors
+
+    @property
+    def yint(self):
+        """The y-intercept of the fit, i.e. the x**0 coefficient
+
+        Returns
+        -------
+        numpy.float
+        """
+        return self.get_any_coeff(0)
+
+    @property
+    def slope(self):
+        """The slope of the fit, i.e. the x**1 coefficient
+
+        Returns
+        -------
+        numpy.float
+        """
+        return self.get_any_coeff(1)
+
+    @property
+    def results(self):
+        """An object containing all the results from the fitting procedure. Will be unique to each fitting method.
+        """
+        return self._results
+
+    @property
+    def data(self):
+        """The data used to create the fit
+
+        Returns
+        -------
+        dict
+            dictionary with keys 'x', 'y', 'xerr', 'yerr'
+        """
+        return self._data
+
+    def __init__(self, x, y, xerr=None, yerr=None, model='york', model_opts=None, nans='error', print_errs=True):
+        """
+        Parameters
+        ----------
+        x : numpy.ndarray
+            The independent variable
+
+        y : numpy.ndarray
+            The dependent variable
+
+        xerr : numpy.ndarray
+            Error in `x`. Required for the `york` model, ignored for all others.
+
+        yerr : numpy.ndarray
+            Error in `y`. Required for the `york` model, ignored for all others.
+
+        model : str
+            Which regression model to use. Options are:
 
             * 'york' - use :func:`york_linear_fit` (from this module).
             * 'y-resid' or 'y_resid' - do least-squares fitting of a straight line to the data, without weighting.
             * 'y-resid-n' or 'y_resid_n' - do least-squares fitting of a polynomial with degree n to the data, without
               weighting.
             * 'ols' - do ordinary least-squares fitting of the data with :mod:`statsmodels`. Unlike y-resid, this
-              includes more information in the ``results`` property, like p-values.
+              includes more information in the `results` property, like p-values.
             * 'ols0' - do ordinary least-squares fitting with :mod:`statsmodels`, with no intercept.
-            * any function that takes a minimum of four arguments (``x``, ``y``, ``xerr``, and ``yerr``, where ``xerr`` and
-              ``yerr`` are the error/uncertainty in ``x`` and ``y``) and returns three values:
+            * any function that takes a minimum of four arguments (`x`, `y`, `xerr`, and `yerr`, where `xerr` and
+              `yerr` are the error/uncertainty in `x` and `y`) and returns three values:
                 - the polynomial coefficients as a 1D array-like object, starting from the x**0 term
                 - the errors in the coefficients, also as a 1D array-like object. If errors are not computed, they
                   should be NaNs.
                 - any object containing more detail about the fitting result, e.g. a dictionary or custom class
 
-        If your chosen model function has additional keyword arguments, you can pass them as a dict with the
-        ``model_opts`` input.
+        model_opts : dict
+            Additional keyword arguments to the model function.
 
-        Since this class is for polynomial fitting, the result is stored as a list of coefficients, where for:
+        nans : str
+            How to treat NaNs in the data. Options are:
 
-        .. math::
-            p(x) = a_0 + a_1 x + a_2 x^2 + ... + a_n x^n
+            * 'error' - raise an error if there are any NaNs.
+            * 'ignore' - do nothing, pass `x`, `y`, `xerr`, `yerr` to the fitting function with NaNs left in place.
+            * 'drop' - remove NaNs from `x`, `y`, `xerr`, and `yerr`
 
-        the coefficients :math:`a_0`, :math:`a_1`, etc. are stored in the ``coeffs`` property as a list. Only as many
-        coefficients as given by the model are stored, so if the model only returns :math:`a_0` and :math:`a_1`, then
-        ``coeffs`` will only have two elements and model.coeffs[2] will raise an ``IndexError``.  If you have an
-        application where you want the coefficient for a given power of :math:`x` regardless of whether that power is
-        used in the model, the ``get_any_coeff`` method will do that.
+        print_errs : bool
+            Include errors on the coefficients when representing this as a string.
 
-        The :math:`a_0` and :math:`a_1` coefficients are accessible through the special properties ``yint`` and
-        ``slope``. These will always return a value, if not used in the model, 0.0 will be returned.
-
-        Once created, instances of this class can be used to predict :math:`y` values for new :math:`x` values.
-        This is done with the ``predict`` method, or by calling the instance itself, e.g.::
-
-            >>> x = np.arange(10)
-            >>> y = 2 * x
-            >>> sigma = 0.1 * np.ones_like(x)
-            >>> fit = PolyFitModel(x, y, sigma, sigma, model='york')
-
-            >>> xprime = np.arange(100,110)
-            # Both of the following are equivalent
-            >>> yprime_1 = fit.predict(xprime)
-            >>> yprime_2 = fit(xprime)
-            >>> yprime_1 == yprime_2
-            True
+        Raises
+        ------
+        FittingDataError
+            if NaNs are found in `x`, `y`, `xerr`, or `yerr` and `nans == "error"`.
         """
-
-    @property
-    def coeffs(self):
-        """
-        Polynomial coefficients for the fit, starting from the x**0 term.
-
-        :rtype: :class:`numpy.ndarray`
-        """
-        return self._coeffs
-
-    @property
-    def coeff_errors(self):
-        """
-        Errors in the polynomial coefficients for the fit.
-
-        :rtype: :class:`numpy.ndarray`
-        """
-        return self._coeff_errors
-
-    @property
-    def yint(self):
-        """
-        The y-intercept of the fit, i.e. the x**0 coefficient
-
-        :rtype: :class:`numpy.float`
-        """
-        return self.get_any_coeff(0)
-
-    @property
-    def slope(self):
-        """
-        The slope of the fit, i.e. the x**1 coefficient
-
-        :rtype: :class:`numpy.float`
-        """
-        return self.get_any_coeff(1)
-
-    @property
-    def results(self):
-        """
-        An object containing all the results from the fitting procedure. Will be unique to each fitting method.
-        :return:
-        """
-        return self._results
-
-    @property
-    def data(self):
-        """
-        The data used to create the fit
-
-        :return: dictionary with keys 'x', 'y', 'xerr', 'yerr'
-        :rtype: dict
-        """
-        return self._data
-
-    def __init__(self, x, y, xerr=None, yerr=None, model='york', model_opts=None, nans='error', print_errs=True):
         self._print_errs = print_errs
 
         # Coerce input data to floats. Check them at the same time
@@ -346,7 +414,10 @@ class PolyFitModel(object):
         """
         String-formatted representation of the fit.
 
-        :return: string of form "y = a_0 + a_1 x + a_2 x**2 + ..."
+        Returns
+        -------
+        str
+            string of form "y = a_0 + a_1 x + a_2 x**2 + ..."
         """
         s = 'y = '
         power = 0
@@ -381,15 +452,23 @@ class PolyFitModel(object):
 
         Any time data is give to this model, it should be run through this method before being stored or used.
 
-        :param input: the input data
+        Parameters
+        ----------
+        input
+            The input data
 
-        :param name: optional, name of the input to use in error messages.
-        :type name: str
+        name : str
+            Optional, name of the input to use in error messages.
 
-        :return: the input coerced to the appropriate type, if posible
-        :rtype: :class:`numpy.ndarray` with dtype = :class:`numpy.float`
+        Returns
+        -------
+        numpy.ndarray
+            The input coerced to the appropriate type (1D numpy float array), if posible
 
-        :raises: TypeError if the input is of an invalid type
+        Raises
+        ------
+        TypeError
+            If the input is of an invalid type
         """
         if allow_none and input is None:
             return None
@@ -398,17 +477,23 @@ class PolyFitModel(object):
         return input.astype(np.float)
 
     def _check_coeff_type(self, coeff):
-        """
-        Check that arrays of coefficients returned from the fitting functions are the right type
+        """Check that arrays of coefficients returned from the fitting functions are the right type
 
-        :param coeff: the array of coefficients. Must be a 1D :class:`numpy.ndarray` or a value that can be converted
-         to one by ``numpy.array(coeff)``.
-        :type coeff: :class:`numpy.ndarray` or compatible
+        Parameters
+        ----------
+        coeff : numpy.ndarray
+            The array of coefficients. Must be a 1D :class:`numpy.ndarray` or a value that can be converted
+            to one by `numpy.array(coeff)`.
 
-        :return: the coefficients, converted to a numpy float array necessary and possible.
-        :rtype: :class:`numpy.ndarray` with dtype = :class:`numpy.float`
+        Returns
+        -------
+        numpy.ndarray
+            The coefficients, converted to a numpy float array if necessary and possible.
 
-        :raises: TypeError if cannot convert to numpy array or given as an array with ndim != 1.
+        Raises
+        ------
+        TypeError
+            If cannot convert to numpy array or given as an array with ndim != 1.
         """
         if not isinstance(coeff, np.ndarray):
             try:
@@ -427,19 +512,23 @@ class PolyFitModel(object):
 
     @classmethod
     def _get_fit_fxn(cls, model):
-        """
-        Internal helper function that maps model names to function calls.
+        """Internal helper function that maps model names to function calls.
 
-        :param model: the model name, or a function.
+        Parameters
+        ----------
+        model : str or callable
+            The model name, or a function.
 
-        :return: the model fitting function to call. Will accept 4 positional arguments (x, y, xerr, yerr) and possibly
-         additional keyword args, though the latter is not guaranteed. Will return two values, coefficients and their
-         errors, as iterables.
-        :rtype: function
+        Returns
+        -------
+        callable
+            The model fitting function to call. Will accept 4 positional arguments (x, y, xerr, yerr) and possibly
+            additional keyword args, though the latter is not guaranteed. Will return two values, coefficients and their
+            errors, as iterables.
         """
 
         # Define wrapper functions here. Each one must accept 4 inputs (x, y, xerr, yerr) and will be passed any
-        # additional keywords received as the ``model_opts`` parameter in __init__. Each must return a vector of
+        # additional keywords received as the `model_opts` parameter in __init__. Each must return a vector of
         # polynomial coefficients, their errors, and a results object. That object may be of any type.
         def york_fit(x, y, xerr, yerr, **opts):
             if xerr is None or yerr is None:
@@ -501,14 +590,17 @@ class PolyFitModel(object):
             return lambda x, y, xerr, yerr: robust(x, y, zero_int=True)
 
     def predict(self, x):
-        """
-        Calculate the y values predicted by the fit for new x values.
+        """Calculate the y values predicted by the fit for new x values.
 
-        :param x: the array of x values
-        :type x: 1D :class:`numpy.ndarray`
+        Parameters
+        ----------
+        x : numpy.ndarray
+            The array of x values
 
-        :return: predicted y values, same shape as x.
-        :rtype: :class:`numpy.ndarray`, dtype = :class:`numpy.float`.
+        Returns
+        -------
+        numpy.ndarray
+            Predicted y values, same shape as x.
         """
         x = self._fix_in_type(x, 'x')
         y = np.zeros_like(x)
@@ -518,18 +610,21 @@ class PolyFitModel(object):
         return y
 
     def get_any_coeff(self, term):
-        """
-        Get the coefficient from a term in the polynomial fit.
+        """Get the coefficient from a term in the polynomial fit.
 
-        Unlike the ``coeffs`` property, this method allows you to ask for any coefficient, even one not returned by the
+        Unlike the `coeffs` property, this method allows you to ask for any coefficient, even one not returned by the
         fitting function. If a coefficient isn't given by the fitting function, will return 0.0.
 
-        :param term: the term to get the coefficient for, i.e. ``term = 1`` will give the coefficient for the x**1
-         term in the fit.
-        :type term: int
+        Parameters
+        ----------
+        term : int
+            The term to get the coefficient for, i.e. `term = 1` will give the coefficient for the x**1
+            term in the fit.
 
-        :return: the coefficient
-        :rtype: :class:`numpy.float`
+        Returns
+        -------
+        numpy.float
+            The coefficient
         """
         if term < 0:
             raise ValueError('power must be >= 0. If you are trying to index the list of coefficients from the end, '
@@ -538,6 +633,193 @@ class PolyFitModel(object):
             return self.coeffs[term]
         except IndexError:
             return 0.0
+
+
+class RunningMean(object):
+    """Compute a running mean.
+
+    This is valuable when you have a large number of large arrays to average
+    and do not need the individual arrays, so can save memory by doing a running
+    average that keeps track of the sum and weights only.
+    """
+    @property
+    def result(self):
+        """The (possibly weighted) average accumulated to this point
+        """
+        return self._sum / self._weights
+
+    def __init__(self, shape, dtype=np.float):
+        """
+        Parameters
+        ----------
+        shape : Sequence[int]
+            The shape of the array needed to store the average.
+
+        dtype
+            What data type to use for the running mean. Default is 64-bit float.
+        """
+        self._sum = np.zeros(shape, dtype=dtype)
+        self._weights = np.zeros(shape, dtype=dtype)
+
+    @classmethod
+    def from_first_values(cls, values, weights=1.0):
+        """Create a RunningMean instance from the first array of values going into the mean
+
+        Parameters
+        ----------
+
+        values : array-like
+            The first array of values to go into the running mean. That is, if you query 
+            `results` immediately on the result, you will get this array back.
+
+        weights : float or array
+            The weight to assign to the first value.
+
+        Returns
+        -------
+        RunningMean
+            The initialized `RunningMean` instance
+        """
+        inst = cls(values.shape, dtype=values.dtype)
+        inst.update(values, weights)
+        return inst
+        
+    def update(self, values, weights=1.0):
+        """Add an array of values to the running mean
+        
+        Parameters
+        ----------
+        
+        values : array-like
+            The values to add to the running mean
+
+        weights : float or array like
+            The weight(s) to assign to these values. 
+
+        Notes
+        -----
+            In the current version, only numpy arrays are supported
+            for values. You may need to convert Pandas dataframes,
+            xarray DataArrays, etc. to numpy arrays first.
+        """
+        self._sum += values
+        self._weights += weights
+
+
+class RunningStdDev(object):
+    """Compute a running mean.
+
+    This is valuable when you have a large number of large arrays to average
+    and do not need the individual arrays, so can save memory by doing a running
+    standard deviation that does not require the arrays to be concatenated.
+
+    Notes
+    -----
+        This implements Welford's algorithm. It currently only supports sample standard
+        deviation (N-1 in the denominator).
+    """
+    @property
+    def result(self):
+        """The standard deviation. If there have been fewer than 2 values added, this will be all NaNs.
+        """
+        if self._count < 2:
+            return np.full(self._m2.shape, np.nan)
+        else:
+            return np.sqrt(self._m2 / (self._count - 1))
+
+    def __init__(self, shape, dtype=np.float):
+        """
+        Parameters
+        ----------
+        shape : Sequence[int]
+            The shape of the array needed to store the average.
+
+        dtype
+            What data type to use for the running mean. Default is 64-bit float.
+        """
+        self._count = 0
+        self._mean = np.zeros(shape, dtype=dtype)
+        self._m2 = np.zeros(shape, dtype=dtype)
+
+    @classmethod
+    def from_first_values(cls, values):
+        """Create a RunningStdDev instance from the first array of values going into it
+
+        Parameters
+        ----------
+
+        values : array-like
+            The first array of values to go into the running mean. That is, if you query 
+            `results` immediately on the result, you will get this array back.
+
+        Returns
+        -------
+        RunningStdDev
+            The initialized `RunningStdDev` instance
+        """
+        inst = cls(values.shape, dtype=values.dtype)
+        inst.update(values)
+        return inst
+        
+    def update(self, values):
+        """Add an array of values to the running standard deviation
+        
+        Parameters
+        ----------
+        
+        values : array-like
+            The values to add to the running standard deviation
+
+        Notes
+        -----
+            In the current version, only numpy arrays are supported
+            for values. You may need to convert Pandas dataframes,
+            xarray DataArrays, etc. to numpy arrays first.
+        """
+        self._count += 1
+        delta = values - self._mean
+        self._mean += delta / self._count
+        delta2 = values - self._mean
+        self._m2 += delta * delta2
+
+
+class RunningMeanAndStd(object):
+    """Simultaneously compute a running mean and standard deviation
+    """
+    @property
+    def result(self):
+        """Gives the current mean and standard deviation.
+        """
+        return self._mean.result, self._std.result
+
+    def __init__(self, shape, dtype=np.float):
+        self._mean = RunningMean(shape, dtype=dtype)
+        self._std = RunningStdDev(shape, dtype=dtype)
+
+    @classmethod
+    def from_first_values(cls, values):
+        inst = cls(values.shape, dtype=values.dtype)
+        inst.update(values)
+        return inst
+
+    def update(self, values):
+        """Add an array of values to the running mean and standard deviation
+        
+        Parameters
+        ----------
+        
+        values : array-like
+            The values to add to the running mean and standard deviation
+
+        Notes
+        -----
+            In the current version, only numpy arrays are supported
+            for values. You may need to convert Pandas dataframes,
+            xarray DataArrays, etc. to numpy arrays first.
+        """
+        self._mean.update(values)
+        self._std.update(values)
+        
 
 
 def _rolling_input_helper(A, window, edges, force_centered):
@@ -567,33 +849,34 @@ def _rolling_input_helper(A, window, edges, force_centered):
 
 
 def rolling_mean2(A, window, edges='zeros', force_centered=False):
-    """
-    Compute a rolling mean over an array.
+    """Compute a rolling mean over an array.
 
-    :param A: The array to operate on. Must be 1D currently
-    :type A: :class:`numpy.ndarray`
+    A : numpy.ndarray
+        The array to operate on. Must be 1D currently
 
-    :param window: the size of the averaging window to use.
-    :type window: int
+    window : int
+        The size of the averaging window to use.
 
-    :param edges: optional, how to treat points at edges:
+    edges : str
+        Optional, how to treat points at edges:
 
         * 'zeros' (default) prepends and appends 0s to A in order to give enough points for the averaging windows near
-          the edge of the array. So for ``A = [1, 2, 3, 4, 5]``, with a window of 3, the first window would average
-          ``[0, 1, 2]`` and the last one ``[4, 5, 0]``.
+          the edge of the array. So for `A = [1, 2, 3, 4, 5]`, with a window of 3, the first window would average
+          `[0, 1, 2]` and the last one `[4, 5, 0]`.
         * 'extend' repeats the first and last values instead of using zeros, so in the above example, the first window
-          would be ``[1, 1, 2]`` and the last one ``[4, 5, 5]``.
-    :type edges: str
+          would be `[1, 1, 2]` and the last one `[4, 5, 5]`.
 
-    :param force_centered: if ``False``, does nothing. If ``True``, forces the window to be an odd number by adding one
-     if it is even. This matters because with an even number the averaging effectively acts "between" points, so for an
-     array of ``[1, 2, 3]``, a window of 2 would make the windows ``[0, 1]``, ``[1, 2]``, ``[2, 3]``, and ``[3, 0]``.
-     As a result, the returned array has one more element than the input. Usually it is more useful to have windows
-     centered on values in A, so this paramter makes that more convenient.
-    :type force_centered: bool
+    force_centered : bool
+        If `False`, does nothing. If `True`, forces the window to be an odd number by adding one
+        if it is even. This matters because with an even number the averaging effectively acts "between" points, so for an
+        array of `[1, 2, 3]`, a window of 2 would make the windows `[0, 1]`, `[1, 2]`, `[2, 3]`, and `[3, 0]`.
+        As a result, the returned array has one more element than the input. Usually it is more useful to have windows
+        centered on values in A, so this parameter makes that more convenient.
 
-    :return: an array, ``B``, either the same shape as A or one longer.
-    :rtype: :class:`numpy.ndarray`.
+    Returns
+    -------
+    numpy.ndarray
+        an array, `B`, either the same shape as A or one longer.
     """
     A, window = _rolling_input_helper(A, window, edges, force_centered)
 
@@ -607,17 +890,21 @@ def rolling_mean2(A, window, edges='zeros', force_centered=False):
 
 
 def rolling_nanmean(A, window, edges='zeros', force_centered=False, window_behavior='default'):
-    """
-    Convenience wrapper around :func:`rolling_op`  that does a nanmean, after replacing masked values in A with NaN
+    """Convenience wrapper around :func:`rolling_op`  that does a nanmean, after replacing masked values in A with NaN
 
     If A is not a masked array (so is just a regular :class:`numpy.ndarray`) it is not changed before doing the nanmean.
 
-    :param window_behavior: optional, changes what happens when the window size is greater than the size of A. The
-     default behavior (given by the string `'default'`) is to extend the array as needed following the ``edges`` keyword
-     and do the rolling mean as always. 'limited' instead mimics the behavior of the ``runmean`` function in Matlab that
-     returns an array the same size as A filled with nanmean(A) if the window width exceeds the length of A.
+    Parameters
+    ----------
+    window_behavior : str
+        Optional, changes what happens when the window size is greater than the size of A. The
+        default behavior (given by the string `'default'`) is to extend the array as needed following the `edges` keyword
+        and do the rolling mean as always. 'limited' instead mimics the behavior of the `runmean` function in Matlab that
+        returns an array the same size as A filled with nanmean(A) if the window width exceeds the length of A.
 
-    See :func:`rolling_op` for documentation of the other parameters.
+    Notes
+    -----
+        See :func:`rolling_op` for documentation of the other parameters.
     """
     if isinstance(A, ma.masked_array):
         A = A.filled(np.nan)
@@ -633,12 +920,16 @@ def rolling_nanmean(A, window, edges='zeros', force_centered=False, window_behav
 
 
 def rolling_nanstd(A, window, edges='zeros', force_centered=False, ddof=0):
-    """
-    Convenience wrapper around :func:`rolling_op`  that does a nanstd, after replacing masked values in A with NaN
+    """Convenience wrapper around :func:`rolling_op`  that does a nanstd, after replacing masked values in A with NaN
 
     If A is not a masked array (so is just a regular :class:`numpy.ndarray`) it is not changed before doing the nanstd.
 
-    See :func:`rolling_op` for documentation of the other parameters.
+    See :func:`rolling_op` for documentation of the standard parameters.
+
+    Parameters
+    ----------
+    ddof : int
+        Degrees of freedom in the denominator. `ddof=1` gives the usual sample standard deviation.
     """
     if isinstance(A, ma.masked_array):
         A = A.filled(np.nan)
@@ -651,61 +942,73 @@ def rolling_nanstd(A, window, edges='zeros', force_centered=False, ddof=0):
 
 
 def rolling_op(op, A, window, edges='zeros', force_centered=False):
-    """
-    Carry out a numpy array operation over a rolling window over an array.
+    """Carry out a numpy array operation over a rolling window over an array.
 
-    :param op: the operation to do, function that will receive each window as a subset of a numpy array. Common examples
-     are :func:`numpy.mean` and :func:`numpy.sum`
+    Parameters
+    ----------
+    op : callable
+        The operation to do, function that will receive each window as a subset of a numpy array. Common examples
+        are :func:`numpy.mean` and :func:`numpy.sum`
 
-    :param A: The array to operate on. Must be 1D currently
-    :type A: :class:`numpy.ndarray`
+    A : numpy.ndarray
+        The array to operate on. Must be 1D currently
 
-    :param window: the size of the averaging window to use.
-    :type window: int
+    window : int
+        The size of the averaging window to use.
 
-    :param edges: optional, how to treat points at edges:
+    edges : str
+        Optional, how to treat points at edges:
 
         * 'zeros' (default) prepends and appends 0s to A in order to give enough points for the averaging windows near
-          the edge of the array. So for ``A = [1, 2, 3, 4, 5]``, with a window of 3, the first window would average
-          ``[0, 1, 2]`` and the last one ``[4, 5, 0]``.
+          the edge of the array. So for `A = [1, 2, 3, 4, 5]`, with a window of 3, the first window would average
+          `[0, 1, 2]` and the last one `[4, 5, 0]`.
         * 'nans' prepends and appends NaNs to A.
         * 'extend' repeats the first and last values instead of using zeros, so in the above example, the first window
-          would be ``[1, 1, 2]`` and the last one ``[4, 5, 5]``.
-    :type edges: str
+          would be `[1, 1, 2]` and the last one `[4, 5, 5]`.
 
-    :param force_centered: if ``False``, does nothing. If ``True``, forces the window to be an odd number by adding one
-     if it is even. This matters because with an even number the averaging effectively acts "between" points, so for an
-     array of ``[1, 2, 3]``, a window of 2 would make the windows ``[0, 1]``, ``[1, 2]``, ``[2, 3]``, and ``[3, 0]``.
-     As a result, the returned array has one more element than the input. Usually it is more useful to have windows
-     centered on values in A, so this paramter makes that more convenient.
-    :type force_centered: bool
+    force_centered : bool
+        If `False`, does nothing. If `True`, forces the window to be an odd number by adding one
+        if it is even. This matters because with an even number the averaging effectively acts "between" points, so for an
+        array of `[1, 2, 3]`, a window of 2 would make the windows `[0, 1]`, `[1, 2]`, `[2, 3]`, and `[3, 0]`.
+        As a result, the returned array has one more element than the input. Usually it is more useful to have windows
+        centered on values in A, so this paramter makes that more convenient.
 
-    :return: an array, ``B``, either the same shape as A or one longer.
-    :rtype: :class:`numpy.ndarray`.
+    Returns
+    -------
+    numpy.ndarray
+        An array either the same shape as A or one longer.
     """
     A, window = _rolling_input_helper(A, window, edges, force_centered)
     return op(rolling_window(A, window), axis=-1)
 
 
 def rolling_window(a, window):
-    """
-    Create a view into an array that provides rolling windows in the last dimension.
+    """Create a view into an array that provides rolling windows in the last dimension.
 
-    For example, given an array, ``A = [0, 1, 2, 3, 4]``, then for ``Awin = rolling_window(A, 3)``,
-    ``Awin[0,:] = [0, 1, 3]``, ``Awin[1,:] = [1, 2, 3]``, etc. This works for higher dimensional arrays
+    For example, given an array, `A = [0, 1, 2, 3, 4]`, then for `Awin = rolling_window(A, 3)`,
+    `Awin[0,:] = [0, 1, 3]`, `Awin[1,:] = [1, 2, 3]`, etc. This works for higher dimensional arrays
     as well.
 
-    :param a: the array to create windows on.
-    :type a: :class:`numpy.ndarray`
+    Parameters
+    ----------
+    a : numpy.ndarray
+        the array to create windows on.
 
-    :param window: the width of windows to use
-    :type window: int
+    window : int
+        the width of windows to use
 
-    :return: a read-only view into the strided array of windows.
+    Returns
+    -------
+    view
+        a read-only view into the strided array of windows.
 
-    From http://www.rigtorp.se/2011/01/01/rolling-statistics-numpy.html.
+    References
+    ----------
+        1. http://www.rigtorp.se/2011/01/01/rolling-statistics-numpy.html.
 
-    Note: the numpy docs (https://docs.scipy.org/doc/numpy/reference/generated/numpy.lib.stride_tricks.as_strided.html#numpy.lib.stride_tricks.as_strided)
+    Notes
+    -----
+    The numpy docs (https://docs.scipy.org/doc/numpy/reference/generated/numpy.lib.stride_tricks.as_strided.html#numpy.lib.stride_tricks.as_strided)
     advise caution using the as_strided method used here because effectively what it does is change how numpy iterates
     through at array at the memory level.
     """
@@ -719,43 +1022,47 @@ def rolling_window(a, window):
 
 
 def york_linear_fit(x, std_x, y, std_y, max_iter=100, nboot=10, convergence_limit=1e-15, verbose=False):
-    """
-    Carries out an iterative, weighted linear regression.
+    """Carries out an iterative, weighted linear regression.
 
     This linear fit method is from the paper: York, Evensen, Martinez and Delgado, "Unified equations for the slope,
     intercept, and standard errors of the best straight line", American Journal of Physics, 72(3), March 2004.
 
-    The main inputs (``x``, ``std_x``, ``y``, ``std_y``) must all be the same shape arrays, and must not contain any
+    The main inputs (`x`, `std_x`, `y`, `std_y`) must all be the same shape arrays, and must not contain any
     non-finite values (NaN or Inf). If given as masked arrays, non-finite values may be present so long as they are
-    masked. Additionally, all values in ``std_x`` and ``std_y`` must be > 0.
+    masked. Additionally, all values in `std_x` and `std_y` must be > 0.
 
-    :param x: the x values to fit.
-    :type x: :class:`numpy.ndarray` or :class:`numpy.ma.masked_array`
+    Parameters
+    ----------
+    x : numpy.ndarray or numpy.ma.masked_array
+        The x values to fit.
 
-    :param std_x: the uncertainty or error in the x values.
+    std_x : numpy.ndarray or numpy.ma.masked_array
+        The uncertainty or error in the x values.
     :type std_x: :class:`numpy.ndarray` or :class:`numpy.ma.masked_array`
 
-    :param y: the y values to fit.
-    :type y: :class:`numpy.ndarray` or :class:`numpy.ma.masked_array`
+    y : numpy.ndarray or numpy.ma.masked_array
+        The y values to fit.
 
-    :param std_y: the uncertainty or error in the y values.
-    :type std_y: :class:`numpy.ndarray` or :class:`numpy.ma.masked_array`
+    std_y : numpy.ndarray or numpy.ma.masked_array
+        The uncertainty or error in the y values.
 
-    :param max_iter: the maximum number of iterations to go through. If this is exceeded, a :class:`ConvergenceError`
-     will be raised.
-    :type max_iter: int
+    max_iter : int
+        The maximum number of iterations to go through. If this is exceeded, a :class:`ConvergenceError`
+        will be raised.
 
-    :param nboot: number of bootstrap samplings to do. Not implemented currently.
-    :type nboot: int
+    nboot : int
+        Number of bootstrap samplings to do. Not implemented currently.
 
-    :param convergence_limit: absolute value that the difference between successive slopes must be below to converge.
-    :type convergence_limit: float
+    convergence_limit : float
+        Absolute value that the difference between successive slopes must be below to converge.
 
-    :param verbose: if ``True``, print information about each iteration
-    :type verbose: bool
+    verbose : bool
+        If `True`, print information about each iteration
 
-    :return: dictionary containing the keys "slope", "yint", "slope_err", and "yint_err".
-    :rtype: dict
+    Returns
+    -------
+    dict
+        dictionary containing the keys "slope", "yint", "slope_err", and "yint_err".
     """
     # Input checking:
     #
@@ -840,12 +1147,20 @@ def york_linear_fit(x, std_x, y, std_y, max_iter=100, nboot=10, convergence_limi
 
 
 def r(y, x, nans='error'):
-    """
-    Calculate the Pearson's correlation coefficient
+    """Calculate the Pearson's correlation coefficient
 
-    :param y: the y-values, i.e. dependent data
-    :param x: the x-values, i.e. independent data
-    :return: the r coefficient
+    Parameters
+    ----------
+    y : array-like float or array
+        The y-values, i.e. dependent data
+
+    x : array-like 
+        The x-values, i.e. independent data
+
+    Returns
+    -------
+    float
+        The r coefficient
     """
     x, y, _, _ = _handle_nans(nans, x, y)
     corr = np.corrcoef(x, y)
@@ -853,29 +1168,32 @@ def r(y, x, nans='error'):
 
 
 def r2(y_data, y_pred=None, x=None, model=None):
-    """
-    Calculate an R2 value for a fit.
+    """Calculate an R2 value for a fit.
 
     Uses the standard definiton of :math:`R^2` (https://en.wikipedia.org/wiki/Coefficient_of_determination). Can be
     given either predicted y values, or x values and a model to predict the y values with, but not both.
 
-    :param y_data: the true y values.
-    :type y_data: :class:`numpy.ndarray` or :class:`numpy.ma.masked_array`
+    Parameters
+    ----------
+    y_data : numpy.ndarray or numpy.ma.masked_array
+        The true y values.
 
-    :param y_pred: the y values predicted by the fit for the same x-values as ``y_data`` are given at. Must be omitted
-     if ``x`` and ``model`` are given.
-    :type y_pred: :class:`numpy.ndarray` or :class:`numpy.ma.masked_array`
+    y_pred : numpy.ndarray or numpy.ma.masked_array
+        The y values predicted by the fit for the same x-values as `y_data` are given at. Must be omitted
+        if `x` and `model` are given.
 
-    :param x: x values that ``y_data`` is defined on, to be used to predict the new y values if not given. Must be
-     omitted if ``y_pred`` is given.
-    :type x: :class:`numpy.ndarray` or :class:`numpy.ma.masked_array`
+    x : numpy.ndarray or numpy.ma.masked_array
+        x values that `y_data` is defined on, to be used to predict the new y values if not given. Must be
+        omitted if `y_pred` is given.
 
-    :param model: a fitting model to use to predict new y-values from the x values. Must be omitted if ``y_pred`` is
-     given.
-    :type model: :class:`PolyFitModel`
+    model : PolyFitModel
+        a fitting model to use to predict new y-values from the x values. Must be omitted if `y_pred` is
+        given.
 
-    :return: the R2 value.
-    :rtype: :class:`numpy.float`
+    Returns
+    -------
+    numpy.float
+        The R2 value.
     """
     if y_pred is not None and (x is not None or model is not None):
         raise TypeError('Give either y_pred or x + model, not all of them')
@@ -897,15 +1215,27 @@ def r2(y_data, y_pred=None, x=None, model=None):
 
 
 def fisher_z_test(x=None, y=None, p=0.05, two_tailed=True):
-    """
-    Test if a regression is significant using Fisher z-transformation of the Pearson correlation
+    """Test if a regression is significant using Fisher z-transformation of the Pearson correlation
 
-    :param x: the x-values (independent data)
-    :param y: the y-values (dependent data)
-    :param p: the p-value, i.e. the critical probability that the regression is not significant.
-    :param two_tailed: whether to treat the p-value as two-tailed, i.e. the regression may be positive or negative
-     (either side of the null hypothesis) or can only be above or below.
-    :return: ``True`` if the regression is significant, ``False`` otherwise.
+    Parameters
+    ----------
+    x : array-like
+        The x-values (independent data)
+
+    y : array-like
+        The y-values (dependent data)
+
+    p : float
+        The p-value, i.e. the critical probability that the regression is not significant.
+
+    two_tailed : bool
+        Whether to treat the p-value as two-tailed, i.e. the regression may be positive or negative
+        (either side of the null hypothesis) or can only be above or below.
+
+    Returns
+    -------
+    bool
+        `True` if the regression is significant, `False` otherwise.
     """
     def get_n(vec):
         vec = np.ma.masked_invalid(vec)
@@ -955,23 +1285,31 @@ def fisher_z_test(x=None, y=None, p=0.05, two_tailed=True):
 
 
 def bin_1d(data, coord, bins, **kwargs):
-    """
-    Bin 1D data and apply an arbitrary operation to the bins.
+    """Bin 1D data and apply an arbitrary operation to the bins.
 
-    :param data: the data to bin
-    :type data: array-like
+    Parameters
+    ----------
 
-    :param coord: an array that gives the coordinates that the data will be binned by.
-    :type coord: array-like
+    data : array-like
+        The data to bin
 
-    :param bins: an integer specifying the number of bins, or a vector (``v``) specifying bin edges where the edges for
-     bin ``i`` are defined by ``v[i]`` and ``v[i+1]``.
-    :type bins: int or array-like
+    coord : array-like
+        An array that gives the coordinates that the data will be binned by.
 
-    :param kwargs: additional keyword arguments to be passed to :func:`bin_nd`.
+    bins : int or array-like
+        An integer specifying the number of bins, or a vector (`v`) specifying bin edges where the edges for
+        bin `i` are defined by `v[i]` and `v[i+1]`.
 
-    :return: binned data and, if requested, the bin edges or bin center.
-    :rtype: :class:`numpy.ndarray`, :class:`numpy.ndarray` (optional)
+    kwargs :
+        Additional keyword arguments to be passed to :func:`bin_nd`.
+
+    Returns
+    -------
+    numpy.ndarray
+        Binned data 
+
+    array-like [optional]
+        If requested, the bin edges or bin centers
     """
     retvals = bin_nd(data, [coord], [bins], **kwargs)
     if isinstance(retvals, tuple):
@@ -987,43 +1325,49 @@ def bin_1d(data, coord, bins, **kwargs):
 
 
 def bin_nd(data, coords, bins, op=np.size, out=None, ret_bins='no'):
-    """
-    Bin multidimensional data and apply an arbitrary operation to the bins.
+    """Bin multidimensional data and apply an arbitrary operation to the bins.
 
-    :param data: the data to bin
-    :type data: array-like
+    Parameters
+    ----------
+    data : array-like
+        The data to bin
 
-    :param coords: a collection of arrays that define the coordinates of the data. Each array must have the same number
-     of elements as data. The number of arrays will determine the dimensionality of the output array, i.e. if there
-     are two coordinate arrays, the output array will be 2D.
-    :type coords: collection(array-like)
+    coords : Sequence[array-like]
+        A collection of arrays that define the coordinates of the data. Each array must have the same number
+        of elements as data. The number of arrays will determine the dimensionality of the output array, i.e. if there
+        are two coordinate arrays, the output array will be 2D.
 
-    :param bins: a collection specifying the bins to use for each coordinate. That is, ``coords[0]`` will be binned
-     according to ``bins[0]`` and so on. Bins may either be specified as a integer, which gives the number of bins, or
-     a vector, ``v`` such that ``v[i]`` and ``v[i+1]`` specify the edges for bin ``i``.
-    :type bins: collection(int or array-like)
+    bins : Sequence[array-like]
+        A collection specifying the bins to use for each coordinate. That is, `coords[0]` will be binned
+        according to `bins[0]` and so on. Bins may either be specified as a integer, which gives the number of bins, or
+        a vector, `v` such that `v[i]` and `v[i+1]` specify the edges for bin `i`.
 
-    :param op: a function that takes an array as the sole input and returns a scalar value as the output. That value
-     will be the binned value. The default is :func:`numpy.size`, which will cause the binned value to be the number of
-     values in the bin.
-    :type op: callable
+    op : callable
+        A function that takes an array as the sole input and returns a scalar value as the output. That value
+        will be the binned value. The default is :func:`numpy.size`, which will cause the binned value to be the number of
+        values in the bin.
 
-    :param out: optional, if given, an array to place the binned values in. Its shape must be (n1 x n2 x ...) where n1,
-     n2, etc. are the number of bins for each dimension. If not given, it is created and automatically.
-    :type out: array-like
+    out : array-like or None
+        If given, an array to place the binned values in. Its shape must be (n1 x n2 x ...) where n1,
+        n2, etc. are the number of bins for each dimension. If not given, it is created and automatically.
 
-    :param ret_bins: optional, specifies whether to return the bins as the second output:
+    ret_bins : str or bool
+        Specifies whether to return the bins as the second output:
 
-     * "no", "n", or ``False`` will not (only one return value).
-     * "yes", "y", ``True``, "edge", or "edges" will return the bin edges as a collection.
-     * "center" or "centers" will return the bin centers as a collection.
+        * "no", "n", or `False` will not (only one return value).
+        * "yes", "y", `True`, "edge", or "edges" will return the bin edges as a collection.
+        * "center" or "centers" will return the bin centers as a collection.
 
-    :type ret_bins: bool or str
 
-    :return: the binned values as an array with number of dimensions equal to the number of coordinates given, and shape
-     equal to the number of bins in each dimension. Optionally, also return the bin edges or centers for each dimension
-     as a collection of arrays.
-    :rtype: :class:`numpy.ndarray`, list(array)
+    Returns
+    -------
+    numpy.ndarray
+        The binned values as an array with number of dimensions equal to the number of coordinates given, and shape
+        equal to the number of bins in each dimension. 
+
+    Sequence[array-like]
+        Optionally, also return the bin edges or centers for each dimension as a collection of arrays (depends on
+        `ret_bins`).
     """
     if len(coords) != len(bins):
         raise ValueError('coords and bins must be the same length')
@@ -1119,19 +1463,26 @@ def hist2d(x, y, xbins=10, ybins=10):
 
 
 def nanabsmax(a, *args, **kwargs):
-    """
-    Calculate the signed maximum distance from zero in a dataset
+    """Calculate the signed maximum distance from zero in a dataset
 
     For a vector, v, returns the element vi for which |vi| is greatest.
 
-    :param a: the array to operate on.
-    :type a: :class:`numpy.ndarray`
+    Parameters
+    ----------
+    a : numpy.ndarray
+        The array to operate on.
 
-    :param args: additional positional arguments recognized by nanmax and nanmin.
-    :param kwargs: additional keyword arguments recognized by nanmax and nanmin. This and ``args`` can be use to operate
-     along a specific axis for example.
+    args
+        Additional positional arguments recognized by nanmax and nanmin.
+    
+    kwargs
+        Additional keyword arguments recognized by nanmax and nanmin. This and `args` can be use to operate
+        along a specific axis for example.
 
-    :return: the value or values farthest from 0.
+    Returns
+    -------
+    number or array
+        The value or values farthest from 0.
     """
     amax = np.nanmax(a, *args, **kwargs)
     amin = np.nanmin(a, *args, **kwargs)

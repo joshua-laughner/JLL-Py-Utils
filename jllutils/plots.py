@@ -203,11 +203,11 @@ def plot_error_bar(ax, x, y, error, upper_error=None, direction='y', error_type=
     error_style.update(style)
 
     if not isinstance(x, np.ndarray):
-        x = np.ndarray(x)
+        x = np.array(x)
     if not isinstance(error, np.ndarray):
-        error = np.ndarray
+        error = np.array(error)
     if not isinstance(y, np.ndarray):
-        y = np.ndarray(y)
+        y = np.array(y)
     if upper_error is None:
         if error_type == 'abs':
             raise IncompatibleOptions('diff_type = "abs" requires that upper_error be given.')
