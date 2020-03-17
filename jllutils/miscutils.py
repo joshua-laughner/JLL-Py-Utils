@@ -234,6 +234,48 @@ class ProgressBar(object):
             print('')
 
 
+class CleanupFiles(object):
+    """Context manager that cleans up certain files when the context block exits
+
+    Usage::
+
+        with CleanupFiles() as cleaner:
+            ...
+            cleaner.add_file(tmp_file)
+            ...
+    """
+    def __init__(self, verbose=True):
+        """Create a CleanupFiles instance
+
+        Parameters
+        ----------
+        verbose : bool
+            Set to `True` to print a message for each file removed
+        """
+        self._files = []
+        self._verbose = verbose
+
+    def add_file(self, filename):
+        """Add a file to be deleted at the end of a context block
+
+        Parameters
+        ----------
+        filename : str
+            Path to the file to delete
+        """
+        self._files.append(filename)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        for f in self._files:
+            if self._verbose:
+                print('Cleaning up {}'.format(f))
+            os.remove(f)
+
+
+
 def all_or_none(val):
     """Return ``True`` if all or no values in the input are truthy
 
