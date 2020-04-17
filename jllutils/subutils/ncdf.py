@@ -328,8 +328,7 @@ def _ncdf_to_df_internal(nch, dim_name, dim_size, var_dict, att_dfs, top_vars_on
        
          
         if 'calendar' in this_att_dict and auto_time:
-            vardat = variable[:].data
-            var_array = pd.DatetimeIndex(ncdf.num2date(vardat, this_att_dict['units'][0]))
+            var_array = get_nctime(variable)
         elif np.issubdtype(variable.dtype, np.floating):
             var_array = variable[:].filled(np.nan)
         else:
@@ -344,6 +343,12 @@ def _ncdf_to_df_internal(nch, dim_name, dim_size, var_dict, att_dfs, top_vars_on
         _ncdf_to_df_internal(group, dim_name=dim_name, dim_size=dim_size, var_dict=var_dict, att_dfs=att_dfs,
                              top_vars_only=top_vars_only, unmatched_vars=unmatched_vars,
                              no_leading_slash=no_leading_slash, auto_time=auto_time)
+
+
+def get_nctime(ncvar):
+    vardat = ncvar[:].data
+    cf_time = ncdf.num2date(vardat, ncvar.units)
+    return pd.DatetimeIndex(cf_time.astype('datetime64[s]'))
 
 
 def make_ncdim_helper(nc_handle, dim_name, dim_var, **attrs):
