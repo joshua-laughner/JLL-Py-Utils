@@ -185,7 +185,7 @@ def dataframe_to_ncdf(df, ncfile, index_name=None, index_attrs=None, attrs=None)
         
 
 def ncdf_to_dataframe(ncfile, target_dim=None, unmatched_vars='silent', top_vars_only=False, no_leading_slash=True, fullpath=False,
-                      convert_time=True):
+                      convert_time=True, ret_attrs=False):
     """
     Read in a netCDF file's 1D variables into a Pandas dataframe
 
@@ -231,13 +231,17 @@ def ncdf_to_dataframe(ncfile, target_dim=None, unmatched_vars='silent', top_vars
     convert_time : bool
         try to convert time variables automatically. Time variables are recognized if they have the
         "calendar" attribute.
+
+    ret_attrs : bool
+        if `True`, return a second dataframe with the attributes. Otherwise, just return the data dataframe.
     
     Returns
     -------
     :class:`pandas.DataFrame`
         Data frame containing the 1D variables with the appropriate dimension from the specified netCDF file.
     :class:`pandas.DataFrame`
-        Data frame containing the attributes for the variables; attribute names will be the index.
+        Data frame containing the attributes for the variables; attribute names will be the index. Only returned
+        if `ret_attrs` is `True`.
     """
 
     target_dim, dim_size, dim_values = _find_1d_dim(ncfile, target_dim)
@@ -253,7 +257,10 @@ def ncdf_to_dataframe(ncfile, target_dim=None, unmatched_vars='silent', top_vars
 
     var_df = pd.DataFrame(var_dict, index=dim_values)
     attr_df = pd.concat(attr_dfs_list, axis=1, sort=True)
-    return var_df, attr_df
+    if ret_attrs:
+        return var_df, attr_df
+    else:
+        return var_df
 
 
 def _find_1d_dim(ncfile, target_dim):
@@ -285,7 +292,7 @@ def _find_1d_dim(ncfile, target_dim):
             tmp_dim_values = nh.variables[dim_name][:].filled(np.nan)
             try:
                 # Is this a time axis?
-                dim_values = pd.DatetimeIndex(ncdf.num2date(tmp_dim_values, nh.variables[dim_name].units))
+                dim_values = get_nctime(nh.variables[dim_name])
             except (ValueError, AttributeError):
                 # Not a datetime axis or missing units, can't convert to datetime
                 dim_values = tmp_dim_values
