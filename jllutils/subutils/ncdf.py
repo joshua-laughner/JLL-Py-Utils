@@ -185,7 +185,7 @@ def dataframe_to_ncdf(df, ncfile, index_name=None, index_attrs=None, attrs=None)
         
 
 def ncdf_to_dataframe(ncfile, target_dim=None, unmatched_vars='silent', top_vars_only=False, no_leading_slash=True, fullpath=False,
-                      convert_time=True):
+                      convert_time=True, time_vars=tuple()):
     """
     Read in a netCDF file's 1D variables into a Pandas dataframe
 
@@ -231,6 +231,9 @@ def ncdf_to_dataframe(ncfile, target_dim=None, unmatched_vars='silent', top_vars
     convert_time : bool
         try to convert time variables automatically. Time variables are recognized if they have the
         "calendar" attribute.
+
+    time_vars : Sequence[str]
+        A sequence of strings giving variable names to always convert to DatetimeIndex variables.
     
     Returns
     -------
@@ -245,11 +248,11 @@ def ncdf_to_dataframe(ncfile, target_dim=None, unmatched_vars='silent', top_vars
     attr_dfs_list = []
     if fullpath:
         # use fullpaths if recursing, otherwise do not
-        fullpath = recurse
+        fullpath = not top_vars_only
     with smart_nc(ncfile) as nh:
         _ncdf_to_df_internal(nh, dim_name=target_dim, dim_size=dim_size, var_dict=var_dict, att_dfs=attr_dfs_list,
                              top_vars_only=top_vars_only, unmatched_vars=unmatched_vars.lower(),
-                             no_leading_slash=no_leading_slash, fullpath=fullpath, auto_time=convert_time)
+                             no_leading_slash=no_leading_slash, fullpath=fullpath, auto_time=convert_time, time_vars=time_vars)
 
     var_df = pd.DataFrame(var_dict, index=dim_values)
     attr_df = pd.concat(attr_dfs_list, axis=1, sort=True)
@@ -295,7 +298,7 @@ def _find_1d_dim(ncfile, target_dim):
     return dim_name, dim_size, dim_values
 
 
-def _ncdf_to_df_internal(nch, dim_name, dim_size, var_dict, att_dfs, top_vars_only, unmatched_vars, no_leading_slash, fullpath, auto_time):
+def _ncdf_to_df_internal(nch, dim_name, dim_size, var_dict, att_dfs, top_vars_only, unmatched_vars, no_leading_slash, fullpath, auto_time, time_vars):
     path = nch.path
     dim_tuple = (dim_name,)
     for varname, variable in nch.variables.items():
@@ -326,8 +329,7 @@ def _ncdf_to_df_internal(nch, dim_name, dim_size, var_dict, att_dfs, top_vars_on
         this_att_dict = {name: [variable.getncattr(name)] for name in variable.ncattrs()}
         this_att_df = pd.DataFrame(this_att_dict, index=[full_varname]).T
        
-         
-        if 'calendar' in this_att_dict and auto_time:
+        if varname in time_vars or ('calendar' in this_att_dict and auto_time):
             vardat = variable[:].data
             var_array = pd.DatetimeIndex(ncdf.num2date(vardat, this_att_dict['units'][0]))
         elif np.issubdtype(variable.dtype, np.floating):
