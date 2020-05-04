@@ -55,6 +55,11 @@ class UnitConverter(object):
         base_val = self.conversions[old_unit]['from'](value)
         return self.conversions[new_unit]['to'](base_val)
 
+    def fixed_convert(self, new_unit):
+        def conv(value, old_unit):
+            return self.convert(value, old_unit, new_unit)
+        return conv
+
 
 time = UnitConverter('s')
 time.add_multiple_conversions(metric_prefixes=False, min=60.0, hr=3600.0, day=24 * 3600.0, wk=7 * 24 * 3600.0)
@@ -63,9 +68,12 @@ mass = UnitConverter('g', lb=453.592, oz=28.3495, amu=1.660540199e-24, )
 
 length = UnitConverter('m', **{'in': 0.0254, '"': 0.0254, 'ft': 0.3048, "'": 0.3048, 'yd': 0.9144, 'mi': 1609.344})
 
-pressure = UnitConverter('Pa', bar=1e5, atm=1.01325e5)
-pressure.add_conversion('mmHg', 133.322)
+pressure = UnitConverter('Pa', bar=1e5, b=1e5, atm=1.01325e5)
+pressure.add_conversion('mmHg', 133.322, metric_prefixes=False)
 
 temperature = UnitConverter('C')
 temperature.add_conversion('F', 5 / 9, 32)
 temperature.add_conversion('K', 1., 273.15)
+
+mixing_ratio = UnitConverter('mol/mol', **{'mol mol^-1': 1.0, 'mol mol-1': 1.0})
+mixing_ratio.add_multiple_conversions(metric_prefixes=False, ppm=1e-6, ppmv=1e-6, ppb=1e-9, ppbv=1e-9, ppt=1e-12, pptv=1e-12)
