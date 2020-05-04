@@ -185,7 +185,7 @@ def dataframe_to_ncdf(df, ncfile, index_name=None, index_attrs=None, attrs=None)
         
 
 def ncdf_to_dataframe(ncfile, target_dim=None, unmatched_vars='silent', top_vars_only=False, no_leading_slash=True, fullpath=False,
-                      convert_time=True, time_vars=tuple()):
+                      convert_time=True, time_vars=tuple(), ret_attrs=False):
     """
     Read in a netCDF file's 1D variables into a Pandas dataframe
 
@@ -234,13 +234,17 @@ def ncdf_to_dataframe(ncfile, target_dim=None, unmatched_vars='silent', top_vars
 
     time_vars : Sequence[str]
         A sequence of strings giving variable names to always convert to DatetimeIndex variables.
+
+    ret_attrs : bool
+        if `True`, return a second dataframe with the attributes. Otherwise, just return the data dataframe.
     
     Returns
     -------
     :class:`pandas.DataFrame`
         Data frame containing the 1D variables with the appropriate dimension from the specified netCDF file.
     :class:`pandas.DataFrame`
-        Data frame containing the attributes for the variables; attribute names will be the index.
+        Data frame containing the attributes for the variables; attribute names will be the index. Only returned
+        if `ret_attrs` is `True`.
     """
 
     target_dim, dim_size, dim_values = _find_1d_dim(ncfile, target_dim)
@@ -256,7 +260,10 @@ def ncdf_to_dataframe(ncfile, target_dim=None, unmatched_vars='silent', top_vars
 
     var_df = pd.DataFrame(var_dict, index=dim_values)
     attr_df = pd.concat(attr_dfs_list, axis=1, sort=True)
-    return var_df, attr_df
+    if ret_attrs:
+        return var_df, attr_df
+    else:
+        return var_df
 
 
 def _find_1d_dim(ncfile, target_dim):
@@ -288,7 +295,7 @@ def _find_1d_dim(ncfile, target_dim):
             tmp_dim_values = nh.variables[dim_name][:].filled(np.nan)
             try:
                 # Is this a time axis?
-                dim_values = pd.DatetimeIndex(ncdf.num2date(tmp_dim_values, nh.variables[dim_name].units))
+                dim_values = get_nctime(nh.variables[dim_name])
             except (ValueError, AttributeError):
                 # Not a datetime axis or missing units, can't convert to datetime
                 dim_values = tmp_dim_values
@@ -328,10 +335,9 @@ def _ncdf_to_df_internal(nch, dim_name, dim_size, var_dict, att_dfs, top_vars_on
         # Read the attributes and put them into their own dataframe
         this_att_dict = {name: [variable.getncattr(name)] for name in variable.ncattrs()}
         this_att_df = pd.DataFrame(this_att_dict, index=[full_varname]).T
-       
+
         if varname in time_vars or ('calendar' in this_att_dict and auto_time):
-            vardat = variable[:].data
-            var_array = pd.DatetimeIndex(ncdf.num2date(vardat, this_att_dict['units'][0]))
+            var_array = get_nctime(variable)
         elif np.issubdtype(variable.dtype, np.floating):
             var_array = variable[:].filled(np.nan)
         else:
@@ -346,6 +352,12 @@ def _ncdf_to_df_internal(nch, dim_name, dim_size, var_dict, att_dfs, top_vars_on
         _ncdf_to_df_internal(group, dim_name=dim_name, dim_size=dim_size, var_dict=var_dict, att_dfs=att_dfs,
                              top_vars_only=top_vars_only, unmatched_vars=unmatched_vars,
                              no_leading_slash=no_leading_slash, auto_time=auto_time)
+
+
+def get_nctime(ncvar):
+    vardat = ncvar[:].data
+    cf_time = ncdf.num2date(vardat, ncvar.units)
+    return pd.DatetimeIndex(cf_time.astype('datetime64[s]'))
 
 
 def make_ncdim_helper(nc_handle, dim_name, dim_var, **attrs):

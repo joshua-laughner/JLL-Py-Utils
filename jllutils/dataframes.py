@@ -125,7 +125,7 @@ def interpolate_series_to(series, values, method='index', axis=0, limit_directio
         uvalues = pd.unique(values)
 
     new_index = series.index.union(uvalues)
-    new_df = series.reindex(new_index).interpolate(method=method, axis=axis, limit=limit, limit_direction=limit_direction,
+    new_df = series.reindex(new_index).interpolate(method=method, axis=axis, limit_direction=limit_direction,
                                                    limit_area=limit_area, downcast=downcast, inplace=False, **kwargs)
     return new_df.loc[values]
 
