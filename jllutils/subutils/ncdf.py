@@ -410,6 +410,18 @@ def make_ncdim_helper(nc_handle, dim_name, dim_var, **attrs):
     return dim
 
 
+def make_nctimedim_attrs(base_date=dt.datetime(1970, 1, 1), time_units='seconds', calendar='gregorian',
+                         base_date_nc_time=True):
+    allowed_time_units = ('seconds', 'minutes', 'hours', 'days')
+    if time_units not in allowed_time_units:
+        raise ValueError('time_units must be one of: {}'.format(', '.join(allowed_time_units)))
+
+    units_str = '{} since {}'.format(time_units, base_date.strftime('%Y-%m-%d %H:%M:%S'))
+    if base_date_nc_time:
+        base_date = cftime.date2num(base_date, units_str, calendar=calendar)
+    return {'units': units_str, 'calendar': calendar, 'base_date': base_date}
+
+
 def make_nctime(timedata, base_date=dt.datetime(1970, 1, 1), time_units='seconds', calendar='gregorian',
                 base_date_nc_time=True):
     """Make a CF-compliant time array
@@ -488,11 +500,10 @@ def make_nctime(timedata, base_date=dt.datetime(1970, 1, 1), time_units='seconds
      'calendar': 'gregorian',
      'base_date': 0.0}
     """
-    allowed_time_units = ('seconds', 'minutes', 'hours', 'days')
-    if time_units not in allowed_time_units:
-        raise ValueError('time_units must be one of: {}'.format(', '.join(allowed_time_units)))
-
-    units_str = '{} since {}'.format(time_units, base_date.strftime('%Y-%m-%d %H:%M:%S'))
+    time_info_dict = make_nctimedim_attrs(base_date=base_date, time_units=time_units, calendar=calendar,
+                                          base_date_nc_time=base_date_nc_time)
+    units_str = time_info_dict['units']
+    calendar = time_info_dict['calendar']
     # date2num requires that the dates be given as basic datetimes. We'll handle converting Pandas timestamps, either
     # as a series or datetime index, but other types will need handled by the user.
     try:
@@ -503,9 +514,7 @@ def make_nctime(timedata, base_date=dt.datetime(1970, 1, 1), time_units='seconds
         else:
             dim_var = [d.to_pydatetime() for d in timedata]
         date_arr = ncdf.date2num(dim_var, units_str, calendar=calendar)
-    if base_date_nc_time:
-        base_date = cftime.date2num(base_date, units_str, calendar=calendar)
-    time_info_dict = {'units': units_str, 'calendar': calendar, 'base_date': base_date}
+
     return date_arr, time_info_dict
 
 
