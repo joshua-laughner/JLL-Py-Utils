@@ -234,6 +234,50 @@ class ProgressBar(object):
             print('')
 
 
+class ProgressMessage(object):
+    def __init__(self, prefix='', suffix='', add_one=True, format='{prefix}{idx}{suffix}', width=72, truncate=True,
+                 auto_advance=True):
+        self._prefix = prefix
+        if not self._prefix.endswith(' '):
+            self._prefix += ' '
+        self._suffix = suffix
+        if not self._suffix.startswith(' '):
+            self._suffix = ' ' + self._suffix
+
+        self._add_one = int(add_one)
+        self._width = width
+        self._format = format
+        self._final_format = '\r{{:<{}}}'.format(width)
+        self._curr_index = 0
+        self._truncate = truncate
+        self._auto_adv = auto_advance
+
+        self._finished = False
+
+    def format_message(self, index, **kwargs):
+        tmp = self._format.format(prefix=self._prefix, idx=index + self._add_one, suffix=self._suffix, **kwargs)
+        if self._truncate and len(tmp) > self._width:
+            tmp = tmp[:self._width]
+        return self._final_format.format(tmp)
+
+    def print_message(self, index=None, **kwargs):
+        if self._finished:
+            return
+        if index is None:
+            index = self._curr_index
+        else:
+            self._curr_index = index
+        msg = self.format_message(index, **kwargs)
+        print(msg, end='')
+        if self._auto_adv:
+            self._curr_index += 1
+
+    def finish(self):
+        if not self._finished:
+            self._finished = True
+            print('')
+
+
 class CleanupFiles(object):
     """Context manager that cleans up certain files when the context block exits
 
