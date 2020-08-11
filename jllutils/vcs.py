@@ -22,6 +22,13 @@ class VCSRepoError(VCSError):
     """
 
 
+class _NullError(VCSError):
+    """Error type to use as placeholder for errors that should not be caught. Never instantiate.
+    """
+    def __init__(self, *args, **kwargs):
+        raise TypeError('Do not instantiate this error type, it must represent a no-op')
+
+
 class VCS(object):
     """Parent class for interacting with version control systems
 
@@ -29,7 +36,7 @@ class VCS(object):
     subclassed with the abstract methods implemented to return the necessary information for a particular version
     control system. See :class:`Git` and :class:`Hg` in this module for examples.
     """
-    def __init__(self, repo_dir, cmd=None):
+    def __init__(self, repo_dir, cmd=None, ignore_shell_errors=True):
         """Instantiate a VCS instance.
 
         This instance will be able to report on the state of a particular repository. There are several built-in methods
@@ -45,10 +52,15 @@ class VCS(object):
             The VCS command to use. This may one expected to be found on your PATH (e.g. "git", "hg") or a full path to
             the executable desired (e.g. "/usr/bin/git").
 
+        ignore_shell_errors : bool
+            If `True`, then any shell errors that occur when trying to call the VCS are ignored and placeholder values
+            (usually "Unknown" or `False`) are returned instead. If `False`, then any error that occurs when calling
+            the VCS shell commands will result in a `VCSExecError`.
+
         Raises
         ------
         VCSExecError
-            if the executable given as `cmd` cannot be found.
+            if the executable given as `cmd` cannot be found and `ignore_shell_errors` is `False`.
 
         VCSRepoError
             if the given path to the repo is not a directory.
@@ -57,10 +69,12 @@ class VCS(object):
             raise VCSRepoError('Bad repo_dir (not a directory): {}'.format(repo_dir))
         self._cmd = cmd
         self._dir = repo_dir
+        self._errs_to_catch = _NullError if not ignore_shell_errors else VCSError
         try:
             sp.call([cmd], stdout=sp.DEVNULL, stderr=sp.DEVNULL)
         except FileNotFoundError:
-            raise VCSExecError('The executable {} does not appear to be on your path'.format(cmd))
+            if not ignore_shell_errors:
+                raise VCSExecError('The executable {} does not appear to be on your path'.format(cmd))
 
     def __call__(self, *args, **kwargs):
         """Alias to :meth:`VCS.call`
@@ -103,7 +117,11 @@ class VCS(object):
         if args[0] != self._cmd and prepend_command:
             args = (self._cmd,) + args
 
-        result = sp.check_output(args, cwd=self._dir)
+        try:
+            result = sp.check_output(args, cwd=self._dir)
+        except Exception as err:
+            raise VCSExecError('Error while trying to execute VCS command "{cmd}" in {dir}: {etype}: {emsg}'
+                               .format(cmd=' '.join(args), dir=self._dir, etype=type(err).__name__, emsg=str(err)))
         if isinstance(result, bytes) and enforce_unicode:
             result = result.decode('utf8')
         return result.strip()
@@ -154,16 +172,26 @@ class Git(VCS):
         super(Git, self).__init__(repo, cmd=cmd)
 
     def repo_root(self):
-        return self.call('rev-parse', '--show-toplevel')
+        try:
+            return self.call('rev-parse', '--show-toplevel')
+        except self._errs_to_catch:
+            return 'Unknown'
 
     def commit_info(self):
-        parent = self.call('rev-parse', '--short', 'HEAD')
-        branch = self.call('rev-parse', '--abbrev-ref', 'HEAD')
-        date = self.call('show', '-s', '--format=%ci', 'HEAD')
-        return parent, branch, date
+        try:
+            parent = self.call('rev-parse', '--short', 'HEAD')
+            branch = self.call('rev-parse', '--abbrev-ref', 'HEAD')
+            date = self.call('show', '-s', '--format=%ci', 'HEAD')
+        except self._errs_to_catch:
+            return 'Unknown', 'Unknown', 'Unknown'
+        else:
+            return parent, branch, date
 
     def is_repo_clean(self):
-        return 0 == sp.call([self._cmd, 'diff-index', '--quiet', 'HEAD', '--'], stdout=sp.DEVNULL, stderr=sp.DEVNULL)
+        try:
+            return 0 == sp.call([self._cmd, 'diff-index', '--quiet', 'HEAD', '--'], stdout=sp.DEVNULL, stderr=sp.DEVNULL)
+        except self._errs_to_catch:
+            return False
 
 
 class Hg(VCS):
@@ -172,7 +200,11 @@ class Hg(VCS):
 
     def commit_info(self):
         # Get the last commit (-l 1) in the current branch (-f)
-        summary = self.call('log', '-f', '-l', '1').splitlines()
+        try:
+            summary = self.call('log', '-f', '-l', '1').splitlines()
+        except self._errs_to_catch:
+            return 'Unknown', 'Unknown', 'Unknown'
+
         log_dict = dict()
 
         for line in summary:
@@ -190,12 +222,19 @@ class Hg(VCS):
         return parent, branch, parent_date
 
     def repo_root(self):
-        return self.call('root')
+        try:
+            return self.call('root')
+        except self._errs_to_catch:
+            return 'Unknown'
 
     def is_repo_clean(self):
         # -q means it will not print untracked files, so as long as there are no lines, then the repo is clean
-        summary = self.call('status', '-q').splitlines()
-        return len(summary) == 0
+        try:
+            summary = self.call('status', '-q').splitlines()
+        except self._errs_to_catch:
+            return False
+        else:
+            return len(summary) == 0
 
 
 def init_vcs(cmd, repo_dir):
