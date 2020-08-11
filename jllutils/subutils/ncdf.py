@@ -508,7 +508,9 @@ def make_nctime(timedata, base_date=dt.datetime(1970, 1, 1), time_units='seconds
     # as a series or datetime index, but other types will need handled by the user.
     try:
         date_arr = ncdf.date2num(timedata, units_str, calendar=calendar)
-    except TypeError:
+    except (TypeError,AttributeError):
+        # AttributeError required for some versions of netCDF4 and numpy where date2num tries to access "year" on a
+        # numpy datetime64, which doesn't have that attribute.
         if isinstance(timedata, np.ndarray):
             dim_var = timedata.astype('datetime64[s]').tolist()
         else:
