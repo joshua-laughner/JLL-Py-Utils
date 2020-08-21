@@ -2,6 +2,7 @@
 Helpful generic plotting functions.
 """
 
+import itertools
 import matplotlib as mpl
 from matplotlib import pyplot as plt
 import numpy as np
@@ -459,6 +460,98 @@ def pcolordiff(x_or_data, y=None, data=None, plotting_fxn=plt.pcolormesh, fracti
         raise TypeError('Must call as pcolordiff(data) or pcolordiff(x, y, data). pcolordiff(data=data) is not supported')
     else:
         return plotting_fxn(x_or_data, y, data, cmap=cmap, vmin=-maxd, vmax=+maxd, **plot_kwargs)
+
+
+def pcolor_categorical(xcat, ycat, zval, text_counts=False, text_style=dict(), text_fmt='{}',
+                       text_skip=lambda x: np.isnan(x), ax=None, **pcolor_kws):
+    """Create a pcolor plot with categorical variables
+
+    This creates a pcolor plot with ticks centered on the colored squares. It is intended for categorical variables
+    on both axes, and so every tick will be labeled. It also ensures that all elements of `zvar` are displayed.
+
+    Parameters
+    ----------
+    xcat : Sequence
+        The labels to use for the x ticks. Must be a sequence, but can be any type that matplotlib can display as
+        tick labels.
+
+    ycat : Sequence
+        The label to use for the y ticks. Same type restrictions as `xcat`.
+
+    zval : Array-like
+        Must be a 2D numeric array. Its dimensions must be `(len(ycat), len(xcat))`. This may feel backwards, but
+        follows the ordering for `pcolor` and `pcolormesh`.
+
+    text_counts : bool
+        If `True`, then the numeric value will be printed in the center of each grid cell, which can help identify
+        its exact value if that is important.
+
+    text_style : dict
+        A dictionary of style keywords that can be passed to `matplotlib.pyplot.text`. The defaults are:
+
+            * `backgroundcolor = "w"`
+            * `ha = "center"`
+            * `va = "center"`
+
+        Each default is used unless explicitly overridden. (To remove the background color, pass the string `"none"`.)
+        Note that because `ha` and `va` are used, `horizontalalignment` and `verticalalignment` must not be.
+
+    text_fmt : str
+        A string that can be formatted using the `format()` method; this controls how the text values are printed in
+        each cell.
+
+    text_skip : callable
+        A function that, given a value from `zval`, returns `True` if the text for that cell should *not* be printed,
+        and `False` otherwise. The default behavior is to print any non-NaN value.
+
+    ax : matplotlib.axes._subplots.AxesSubplot
+        The axis to plot into. If `None`, a default set of axes is created.
+
+    pcolor_kws
+        Additional keywords given to this function are passed through to `pcolormesh`.
+
+    Returns
+    -------
+    matplotlib.collections.QuadMesh
+        The handle returned by `pcolormesh`, suitable to pass to `colorbar`.
+    """
+    if ax is None:
+        _, ax = plt.subplots()
+    if np.ndim(zval) != 2:
+        raise TypeError('zval must have exactly 2 dimensions')
+
+    ny, nx = np.shape(zval)
+    if np.size(xcat) != nx:
+        raise TypeError(
+            'xcat must have a number of elements (was {}) equal to the second dimension of zval (was {})'.format(
+                np.size(xcat), nx))
+    if np.size(ycat) != ny:
+        raise TypeError(
+            'ycat must have a number of elements (was {}) equal to the first dimension of zval (was {})'.format(
+                np.size(ycat), ny))
+
+    h = ax.pcolormesh(zval, **pcolor_kws)
+    xticks = np.arange(0.5, nx)
+    ax.set_xticks(xticks)
+    ax.set_xticklabels(xcat)
+
+    yticks = np.arange(0.5, ny)
+    ax.set_yticks(yticks)
+    ax.set_yticklabels(ycat)
+
+    if text_counts:
+        defaults = {'backgroundcolor': 'w', 'ha': 'center', 'va': 'center'}
+        for k, v in defaults.items():
+            text_style.setdefault(k, v)
+
+        for i, j in itertools.product(range(nx), range(ny)):
+            if text_skip(zval[j, i]):
+                continue
+            x = xticks[i]
+            y = yticks[j]
+            ax.text(x, y, text_fmt.format(zval[j, i]), text_style)
+
+    return h
 
 
 def _is_color_tuple(t):
