@@ -554,6 +554,32 @@ def pcolor_categorical(xcat, ycat, zval, text_counts=False, text_style=dict(), t
     return h
 
 
+def cbextend(data, vmin=None, vmax=None, vlim=None):
+
+    vmin = -vlim if vmin is None and vlim is not None else vmin
+    vmax = vlim if vmax is None and vlim is not None else vmax
+    if vmin is not None:
+        extend_min = np.nanmin(data) < vmin
+    else:
+        extend_min = False
+
+    if vmax is not None:
+        extend_max = np.nanmax(data) > vmax
+    else:
+        extend_max = False
+
+    if extend_min and extend_max:
+        extend = 'both'
+    elif extend_min:
+        extend = 'min'
+    elif extend_max:
+        extend = 'max'
+    else:
+        extend = 'neither'
+
+    return extend
+
+
 def _is_color_tuple(t):
     """
     Test if a tuple is a valid color tuple
