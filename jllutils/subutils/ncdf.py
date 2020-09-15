@@ -360,7 +360,7 @@ def get_nctime(ncvar):
     return pd.DatetimeIndex(cf_time.astype('datetime64[s]'))
 
 
-def make_ncdim_helper(nc_handle, dim_name, dim_var, **attrs):
+def make_ncdim_helper(nc_handle, dim_name, dim_var, unlimited=False, **attrs):
     """Create a netCDF dimension and its associated variable simultaneously
 
     Typically in a netCDF file, each dimension should have a variable with the same name that defines the coordinates
@@ -377,6 +377,9 @@ def make_ncdim_helper(nc_handle, dim_name, dim_var, **attrs):
     dim_var : :class:`numpy.ndarray`
         the variable data to use when defining the dimension's coordinates. The dimensions length will be set
         by the size of this vector. This must be a 1D numpy array or comparable type.
+
+    unlimited : bool
+        Whether this dimension should be an unlimited (i.e. record) dimension in the netCDF file.
 
     attrs
         keyword-value pairs defining attribute to attach to the dimension variable.
@@ -403,7 +406,7 @@ def make_ncdim_helper(nc_handle, dim_name, dim_var, **attrs):
     """
     if np.ndim(dim_var) != 1:
         raise ValueError('Dimension variables are expected to be 1D')
-    dim = nc_handle.createDimension(dim_name, np.size(dim_var))
+    dim = nc_handle.createDimension(dim_name, np.size(dim_var) if not unlimited else None)
     var = nc_handle.createVariable(dim_name, dim_var.dtype, dimensions=(dim_name,))
     var[:] = dim_var
     var.setncatts(attrs)
