@@ -75,7 +75,7 @@ class UnitConverter(object):
     def add_conversion(self, unit, scale, add=0.0, metric_prefixes=None):
         """Add a single new conversion.
 
-        This method offers more flexibility than `addi_multiple_conversions` or the init method, but each new unit
+        This method offers more flexibility than `add_multiple_conversions` or the init method, but each new unit
         requires its own method call. The conversion formula is:
 
         ..math:
@@ -245,8 +245,10 @@ pressure.add_conversion('mmHg', 133.322, metric_prefixes=False)
 temperature = UnitConverter('C', **{'degC': 1.0, 'degrees C': 1.0, 'degrees celsius': 1.0})
 temperature.add_conversion('F', 5 / 9, 32)
 temperature.add_conversion('K', 1., 273.15)
+temperature.add_conversion('Kelvin', 1., 273.15, metric_prefixes='full')
 
 mixing_ratio = UnitConverter('ppp', ppm=1e-6, ppmv=1e-6, ppb=1e-9, ppbv=1e-9, ppt=1e-12, pptv=1e-12, metric_prefixes=False)
 _mol_ratios = {'mol/mol': 1.0, 'mol mol^-1': 1.0, 'mol mol-1': 1.0}
 mixing_ratio.add_multiple_conversions(metric_prefixes=True, **_mol_ratios)
 mixing_ratio.add_multiple_conversions(metric_prefixes='full', **_mol_ratios)
+mixing_ratio.add_conversion('DMF', 1.0, metric_prefixes=False)
