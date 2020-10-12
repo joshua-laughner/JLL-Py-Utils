@@ -354,8 +354,36 @@ def _ncdf_to_df_internal(nch, dim_name, dim_size, var_dict, att_dfs, top_vars_on
                              no_leading_slash=no_leading_slash, auto_time=auto_time)
 
 
-def get_nctime(ncvar):
-    vardat = ncvar[:].data
+def get_nctime(ncvar, fill_action='nothing'):
+    """Read a netCDF time variable and convert it to a Pandas DatetimeIndex
+
+    Parameters
+    ----------
+    ncvar : netCDF4.Variable
+        The time *variable* in the netCDF dataset. Note this is not the array, so for a dataset `ds`
+        this would be e.g. `ds['time']`, and not `ds['time'][:]`.
+
+    fill_action : str, int, or float
+        How to handle fill values in the time variable. The default value is `"nothing"`, which will
+        do nothing and attempt to interpret them as all other values in the array. This may result
+        in an overflow error if the fill values are large. Passing `"replace"` here will instead
+        replace them with the base date for the variable (often 1 Jan 1970). Alternatively, pass
+        an integer or float to use instead as the fill value (it will still be reinterpreted as a
+        date).
+
+    Returns
+    -------
+    pandas.DatetimeIndex
+        The netCDF times as a DatetimeIndex.
+    """
+    if fill_action == 'nothing':
+        vardat = ncvar[:].data
+    elif fill_action == 'replace':
+        vardat = ncvar[:].filled(0.0)
+    elif isinstance(fill_action, (int, float)):
+        vardat = ncvar[:].filled(fill_action)
+    else:
+        raise NotImplementedError('Unknown fill_action "{}"'.format(fill_action))
     cf_time = ncdf.num2date(vardat, ncvar.units)
     return pd.DatetimeIndex(cf_time.astype('datetime64[s]'))
 
