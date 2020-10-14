@@ -16,7 +16,7 @@ class ProgressBar(object):
     printing other messages in the for loop, so if you do that, the messages will get jumbled up with the progress bar.
     """
     def __init__(self, end_count, style='bar+count', add_one=True, freq=1, prefix='', suffix='', auto_finish=True,
-                 force_finish=True, width=72):
+                 force_finish=True, width=72, enabled=True):
         """Create a ProgressBar instance
 
         Parameters
@@ -58,6 +58,10 @@ class ProgressBar(object):
 
         width : int
             number of characters wide to make the progress bar, including the prefix and suffix.
+
+        enabled : bool
+            whether this progress bar responds to calls to `print_bar` or `finish`. Can be used to easily disable
+            the bar during less verbose execution.
         """
         if len(prefix) > 0 and not prefix.endswith(' '):
             prefix += ' '
@@ -72,7 +76,7 @@ class ProgressBar(object):
         self._suffix = suffix
         self._auto_finish = auto_finish
         self._force_finish = force_finish
-        self._finished = False
+        self._finished = not enabled
         self._width = width
 
         self._curr_index = 0
@@ -235,8 +239,51 @@ class ProgressBar(object):
 
 
 class ProgressMessage(object):
+    """Print a series of messages with each one overwriting the previous one.
+
+    This is a companion to :class:`ProgressBar`. This class is build for cases where a large but indeterminate
+    number of progress messages need to be shown. Unlike :class:`ProgressBar`, this does not need or accept the
+    total number of iterations expected.
+    """
     def __init__(self, prefix='', suffix='', add_one=True, format='{prefix}{idx}{suffix}', width=72, truncate=True,
-                 auto_advance=True):
+                 auto_advance=True, enabled=True):
+        """Create a ProgressMessage instance.
+
+        Parameters
+        ----------
+        format : str
+            A format string (using `{}` style formatting) that will be used for each message. All formatting must be
+            done by key value (that is, each pair of curly braces must have a key name: "{prefix}", not "{}"). 
+            Three keywords are always available: "prefix", "suffix", and "idx", which will be replaced with the prefix
+            string, suffix string, and current index, respectively. Other keywords can be used, so long as they are
+            given to each call of :meth:`print_message`.
+        
+        prefix : str
+            A prefix string to use. It will replace "{prefix}" in `format`. If it does not end with a space, one is
+            added.
+
+        suffix : str
+            A suffix string to use. It will replace "{suffix}" in `format`. If it does not begin with a space, one is
+            added.
+
+        add_one : bool
+            Whether one should be added to the index value before inserting in the message, effectively switching to
+            1-based indexing.
+
+        width : int
+            Number of characters wide each message may be.
+    
+        truncate : bool
+            When `True`, messages longer than `width` are truncated to `width`. If this is `False`, messages can 
+            exceed the width, which also means characters from previous messages may be left behind.
+
+        auto_advance : bool
+            When `True`, the internal index is advanced by 1 after each call to :meth:`print_message`.
+
+        enabled : bool
+            whether this progress bar responds to calls to `print_bar` or `finish`. Can be used to easily disable
+            the bar during less verbose execution.
+        """
         self._prefix = prefix
         if not self._prefix.endswith(' '):
             self._prefix += ' '
@@ -252,7 +299,7 @@ class ProgressMessage(object):
         self._truncate = truncate
         self._auto_adv = auto_advance
 
-        self._finished = False
+        self._finished = not enabled
 
     def format_message(self, index, **kwargs):
         tmp = self._format.format(prefix=self._prefix, idx=index + self._add_one, suffix=self._suffix, **kwargs)
@@ -261,6 +308,18 @@ class ProgressMessage(object):
         return self._final_format.format(tmp)
 
     def print_message(self, index=None, **kwargs):
+        """Print a message
+
+        Parameters
+        ----------
+        index : Optional[int]
+            Index to use for the "{idx}" value in the message. Will have 1 added to it if `add_one` was `True` during
+            instantiation. If not given, the current internal count of how many messages have been printed is used.
+
+        kwargs
+            Additional keywords, passed to the message formatter and so need to provide for all formatting elements
+            in the message except for "{prefix}", "{suffix}", and "{idx}".
+        """
         if self._finished:
             return
         if index is None:
@@ -273,6 +332,13 @@ class ProgressMessage(object):
             self._curr_index += 1
 
     def finish(self):
+        """Mark this progress as complete.
+
+        Has two effects: future calls to :meth:`print_message` do nothing and prints a newline to "close out" the
+        message. Note that unlike :class:`ProgressBar`, which can infer when it is complete, :class:`ProgressMessage`
+        cannot (as it is intended for use when the total number of elements is not known) so you must call `finish`
+        to avoid the next `print` happening on the same line as the last progress message.
+        """
         if not self._finished:
             self._finished = True
             print('')
