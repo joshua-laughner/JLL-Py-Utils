@@ -6,9 +6,10 @@ import itertools
 import matplotlib as mpl
 from matplotlib import pyplot as plt
 import numpy as np
+import pandas as pd
 import string
 
-from .stats import hist2d
+from .stats import hist2d, PolyFitModel
 
 
 class IncompatibleOptions(Exception):
@@ -858,3 +859,79 @@ def label_subplots(axs, fmt='({})', seq='lower', xpos=-0.1, ypos=0.95, style={'w
     else:
         handles = handles.reshape(orig_shape)
     return handles
+
+
+def hexbin_plus_mean(x, y, mean_xbins, ax=None, hexbin_kwargs=dict(), include_fit=None,
+                     line_kwargs={'marker': 'x', 'color': 'r', 'ls': 'none'},
+                     fit_line_kwargs={'color': 'k', 'ls': '--'}):
+    """Make a hexbin plot with binned means superimposed and fitted
+
+    Parameters
+    ----------
+    x : array-like
+        The x-coordinates of the data
+
+    y : pandas.Series
+        The y-coordinates of the data
+
+    mean_xbins : array-like
+        The bin edges to use to define the means in the y direction
+
+    ax
+        The axis to play into. If `None`, one is created.
+
+    hexbin_kwargs: dict
+        A dictionary of additional keyword arguments to pass to hexbin. 
+
+    include_fit: bool or None
+        Whether to include the fit on the plot. If `False`, the fit is
+        never included. If `True`, the fit is included and an error is
+        raised if the fit fails. If `None`, then a fit will be attempted,
+        but skipped if an error occurs.
+
+    line_kwargs: dict
+        Dictionary of style keyword arguments to use when plotting the 
+        bin means.
+
+    fit_line_kwargs: dict
+        Dictionary of style keyword arguments to use when plotting the
+        fit line.
+
+
+    Returns
+    -------
+    array-like
+        The bin centers used as the x-coordinates when plotting the bin means.
+        Type will depend on the type of `mean_xbins`
+
+    numpy.ndarray
+        The means of the y-values.
+
+    jllutils.stats.PolyFitModel
+        The fit of the binned mean values. Will be `None` if no fit was done,
+        either due to an error or `include_fit = False`.
+    """
+    ymeans = y.groupby(pd.cut(x, mean_xbins)).mean().to_numpy()
+    bin_centers = 0.5*(mean_xbins[:-1] + mean_xbins[1:])
+
+    if ax is None:
+        _, ax = plt.subplots()
+
+    h=ax.hexbin(x.to_numpy(), y.to_numpy(), **hexbin_kwargs)
+    plt.colorbar(h, ax=ax, label='Counts')
+    ax.plot(bin_centers, ymeans, **line_kwargs)
+    if include_fit is True or include_fit is None:
+        try:
+            fit = PolyFitModel(bin_centers, ymeans, model='y-resid', nans='drop')
+        except:
+            if include_fit is True:
+                raise
+            else:
+                fit = None
+        else:
+            h=ax.plot(bin_centers, fit(bin_centers), label=str(fit), **fit_line_kwargs)
+            ax.legend()
+    else:
+        fit = None
+
+    return bin_centers, ymeans, fit
