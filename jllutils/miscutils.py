@@ -738,6 +738,12 @@ def split_outside_group(s, grp_start, grp_stop=None, splitchar=string.whitespace
 
 
 def parse_fortran_format(fmt_str, rtype='fmtstr', bare_fmt=False):
+    # Fortran uses "i" for integers, Python uses "d"
+    # Fortran uses "a" for strings, Python uses "s"
+    # "pe" comes up as a way to change the power of 10 that an
+    #   exponential is, Python has no equivalent.
+    fmttype_subs = {'pe': 'e', 'i': 'd', 'a': 's'}
+
     fmt_str = fmt_str.strip()
     if not fmt_str.startswith('(') or not fmt_str.endswith(')'):
         raise ValueError('The first and last non-whitespace characters of the format string must be open and close '
@@ -767,10 +773,13 @@ def parse_fortran_format(fmt_str, rtype='fmtstr', bare_fmt=False):
             format_str += nspaces * ' '
             idx += nspaces
         else:
-            match = re.match(r'(\d*)([a-z])(\d+)(\.\d+)?', part, re.IGNORECASE)
+            match = re.match(r'(\d*)([a-z]+)(\d+)(\.\d+)?', part, re.IGNORECASE)
+            # This is not always right. For specs like "1pe12.4", the "1" is not repeats,
+            # but is associated with the "p".
             repeats, fmttype, width, prec = match.groups()
+            # Substitute in the python-compatible format type
+            fmttype = fmttype_subs.get(fmttype, fmttype)
             prec = '' if prec is None else prec
-            fmttype = 'd' if fmttype == 'i' else fmttype  # Fortran uses "i" for integers, python uses "d"
 
             pyfmt = '{w}{p}{t}'.format(w=width, p=prec, t=fmttype)
             if not bare_fmt:
