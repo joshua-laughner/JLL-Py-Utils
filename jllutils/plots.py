@@ -120,15 +120,22 @@ def create_twin_axes_with_color(twin='x', color2=None, color1=None, ax=None):
     if twin == 'x':
         ax2 = ax1.twinx()
         spines = [ax1.spines['left'], ax2.spines['right']]
+        hide_spines = [ax1.spines['right'], ax2.spines['left']]
         tick_ax = 'y'
         labels = [ax1.yaxis.label, ax2.yaxis.label]
     elif twin == 'y':
         ax2 = ax1.twiny()
         spines = [ax1.spines['bottom'], ax2.spines['top']]
+        hide_spines = [ax1.spines['top'], ax2.spines['bottom']]
         tick_ax = 'x'
         labels = [ax1.xaxis.label, ax2.xaxis.label]
     else:
         raise ValueError('twin must be "x" or "y"')
+
+    for spine in hide_spines:
+        # Hide the spines that overlap with their twin's colored spine
+        # - this ensures that ax1's color shows through.
+        spine.set_visible(False)
 
     if color1:
         spines[0].set_color(color1)
