@@ -1,8 +1,10 @@
 """
 Utilities that don't fit any other well defined category
 """
+from abc import ABCMeta, abstractmethod
 import numpy as np
 import os
+from pathlib import Path
 import re
 import string
 import warnings
@@ -384,6 +386,110 @@ class CleanupFiles(object):
                 print('Cleaning up {}'.format(f))
             os.remove(f)
 
+
+class _File(metaclass=ABCMeta):
+    def __init__(self, *args, **kwargs):
+        self._path = Path(*args, **kwargs)
+        if not self._path.exists():
+            raise OSError(f'{self._path} does not exist')
+
+    def __repr__(self):
+        klass = self.__class__.__name__
+        filepath = str(self._path)
+        return f'{klass}("{filepath}")'
+
+    def __str__(self):
+        return str(self._path)
+
+    def __getattr__(self, item):
+        return getattr(self._path, item)
+
+    @abstractmethod
+    def __eq__(self, other):
+        pass
+
+    @abstractmethod
+    def __hash__(self):
+        pass
+
+
+class RealFile(_File):
+    """Representation of a specific, concrete file stored on disk.
+
+    This class is almost identical to :class:`pathlib.Path` except that it checks equality by file, not path. This makes
+    it easy to tell whether two paths point to the same file or not. This class follows symbolic links, so comparing
+    `f1 == f2` will return `True` if one is a symbolic link to the other, or both are symbolic links to the same "real"
+    file. If you want to distinguish symbolic links from the files they point to, use :class:`LinkFile` instead.
+
+    The constructor for this class is the same as for :class:`pathlib.Path`, except that if you try to construct an
+    instance for a file that does not exist, an error is raised immediately.
+
+    Notes
+    -----
+    * You can check for equality between this class and a :class:`pathlib.Path` or a string, and it will have the same
+      behavior as constructing a :class:`RealFile` instance from those types.
+    * This class has not been tested on Windows as of 2021-04-15
+
+    See Also
+    --------
+    * :class:`LinkFile` - considers symbolic links and "real" files different when checking for equality
+    """
+    def __eq__(self, other):
+        if isinstance(other, Path):
+            their_stat = other.stat()
+        elif isinstance(other, str):
+            their_stat = Path(other).stat()
+        elif isinstance(other, self.__class__):
+            their_stat = other._path.stat()
+        else:
+            raise NotImplementedError(f'Equality between {self.__class__.__name__} and {other.__class__.__name__} not implemented')
+
+        my_stat = self._path.stat()
+        return (my_stat.st_ino == their_stat.st_ino) and (my_stat.st_dev == their_stat.st_dev)
+
+    def __hash__(self):
+        my_stat = self._path.stat()
+        return my_stat.st_ino + 2**64 * my_stat.st_dev
+
+
+class LinkFile(_File):
+    """Representation of a specific, concrete file stored on disk.
+
+    This class is almost identical to :class:`pathlib.Path` except that it checks equality by file, not path. This makes
+    it easy to tell whether two paths point to the same file or not. This class does not follow symbolic links, so
+    comparing `f1 == f2` will return `False` if one is a symbolic link to the other, or both are symbolic links to the
+    same "real" file. If you want to treat symbolic links as the same as the files they point to, use :class:`RealFile`
+    instead.
+
+    The constructor for this class is the same as for :class:`pathlib.Path`, except that if you try to construct an
+    instance for a file that does not exist, an error is raised immediately.
+
+    Notes
+    -----
+    * You can check for equality between this class and a :class:`pathlib.Path` or a string, and it will have the same
+      behavior as constructing a :class:`LinkFile` instance from those types.
+    * This class has not been tested on Windows as of 2021-04-15
+
+    See Also
+    --------
+    * :class:`RealFile` - considers symbolic links the same as the file they point to when checking for equality
+    """
+    def __eq__(self, other):
+        if isinstance(other, Path):
+            their_stat = other.lstat()
+        elif isinstance(other, str):
+            their_stat = Path(other).lstat()
+        elif isinstance(other, self.__class__):
+            their_stat = other._path.lstat()
+        else:
+            raise NotImplementedError(f'Equality between {self.__class__.__name__} and {other.__class__.__name__} not implemented')
+
+        my_stat = self._path.lstat()
+        return (my_stat.st_ino == their_stat.st_ino) and (my_stat.st_dev == their_stat.st_dev)
+
+    def __hash__(self):
+        my_stat = self._path.lstat()
+        return my_stat.st_ino + 2**64 * my_stat.st_dev
 
 
 def all_or_none(val):

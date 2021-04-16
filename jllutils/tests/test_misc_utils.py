@@ -1,5 +1,8 @@
 import numpy as np
 from numpy import ma
+import os
+from pathlib import Path
+import shutil
 import unittest
 
 from .. import miscutils
@@ -52,3 +55,105 @@ class FindBlockTest(unittest.TestCase):
         self.assertEqual(inds, self.array_inds)
         inds, _ = miscutils.find_block(self.masked_array, ignore_masked=True)
         self.assertEqual(inds, self.array_inds)
+
+
+class FileTests(unittest.TestCase):
+    real_test_path = Path(__file__).parent / 'file_test_dir'
+    link_test_path = Path(__file__).parent / 'file_link_dir'
+    real_test_file = real_test_path / 'real_file.txt'
+    alt_test_file  = real_test_path / 'second_file.txt'
+    link_test_file = real_test_path / 'link_file.txt'
+    linkdir_real_test_file = link_test_path / 'real_file.txt'
+    linkdir_alt_test_file  = link_test_path / 'second_file.txt'
+    linkdir_link_test_file = link_test_path / 'link_file.txt'
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.real_test_path.mkdir()
+        os.symlink(cls.real_test_path, cls.link_test_path)
+        with open(cls.real_test_file, 'w') as f:
+            f.write('Testing File classes')
+        with open(cls.alt_test_file, 'w') as f:
+            f.write('Second File class test file')
+        os.symlink(cls.real_test_file, cls.link_test_file)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        shutil.rmtree(cls.real_test_path)
+        os.remove(cls.link_test_path)
+
+    # ------------------ #
+    # Tests for RealFile #
+    # ------------------ #
+    def test_realfile_same_file_equal(self):
+        f1 = miscutils.RealFile(self.real_test_file)
+        f2 = miscutils.RealFile(self.real_test_file)
+        self.assertEqual(f1, f2)
+
+    def test_realfile_link_equal(self):
+        f1 = miscutils.RealFile(self.real_test_file)
+        f2 = miscutils.RealFile(self.link_test_file)
+        self.assertEqual(f1, f2)
+
+    def test_realfile_same_file_equal_from_linked_dir(self):
+        f1 = miscutils.RealFile(self.real_test_file)
+        f2 = miscutils.RealFile(self.linkdir_real_test_file)
+        self.assertEqual(f1, f2)
+
+    def test_realfile_link_equal_from_linked_dir(self):
+        f1 = miscutils.RealFile(self.real_test_file)
+        f2 = miscutils.RealFile(self.linkdir_link_test_file)
+        self.assertEqual(f1, f2)
+
+    def test_realfile_diff_file_unequal(self):
+        f1 = miscutils.RealFile(self.real_test_file)
+        f2 = miscutils.RealFile(self.alt_test_file)
+        self.assertNotEqual(f1, f2)
+
+    def test_realfile_diff_link_unequal(self):
+        f1 = miscutils.RealFile(self.link_test_file)
+        f2 = miscutils.RealFile(self.alt_test_file)
+        self.assertNotEqual(f1, f2)
+
+    def test_realfile_diff_file_unequal_from_linked_dir(self):
+        f1 = miscutils.RealFile(self.real_test_file)
+        f2 = miscutils.RealFile(self.linkdir_alt_test_file)
+        self.assertNotEqual(f1, f2)
+
+    def test_realfile_diff_link_unequal_from_linked_dir(self):
+        f1 = miscutils.RealFile(self.link_test_file)
+        f2 = miscutils.RealFile(self.alt_test_file)
+        self.assertNotEqual(f1, f2)
+
+    # ------------------ #
+    # Tests for LinkFile #
+    # ------------------ #
+    def test_linkfile_same_file_equal(self):
+        f1 = miscutils.LinkFile(self.real_test_file)
+        f2 = miscutils.LinkFile(self.real_test_file)
+        self.assertEqual(f1, f2)
+
+    def test_linkfile_link_not_equal(self):
+        f1 = miscutils.LinkFile(self.real_test_file)
+        f2 = miscutils.LinkFile(self.link_test_file)
+        self.assertNotEqual(f1, f2)
+
+    def test_linkfile_diff_file_not_equal(self):
+        f1 = miscutils.LinkFile(self.real_test_file)
+        f2 = miscutils.LinkFile(self.alt_test_file)
+        self.assertNotEqual(f1, f2)
+
+    def test_linkfile_same_file_equal_from_linked_dir(self):
+        f1 = miscutils.LinkFile(self.real_test_file)
+        f2 = miscutils.LinkFile(self.linkdir_real_test_file)
+        self.assertEqual(f1, f2)
+
+    def test_linkfile_link_not_equal_from_linked_dir(self):
+        f1 = miscutils.LinkFile(self.real_test_file)
+        f2 = miscutils.LinkFile(self.linkdir_link_test_file)
+        self.assertNotEqual(f1, f2)
+
+    def test_linkfile_diff_file_not_equal_from_linked_dir(self):
+        f1 = miscutils.LinkFile(self.real_test_file)
+        f2 = miscutils.LinkFile(self.linkdir_alt_test_file)
+        self.assertNotEqual(f1, f2)
