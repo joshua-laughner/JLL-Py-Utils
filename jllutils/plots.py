@@ -246,7 +246,7 @@ def plot_error_bar(ax, x, y, error, upper_error=None, direction='y', error_type=
         plot_error_i[:, 1] = upper_error
     elif error_type == 'diff':
         plot_error_i[:, 0] = i_coords - error
-        plot_error_i[:, 1] = i_coords + error
+        plot_error_i[:, 1] = i_coords + upper_error
 
     if direction == 'y':
         x_error = plot_error_j
