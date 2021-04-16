@@ -553,6 +553,9 @@ class PolyFitModel(object):
             results = sm.OLS(y, x, hasconst=not zero_int).fit()
             coeffs = results.params
             coeffs_err = np.sqrt(np.diag(results.cov_params()))
+            if zero_int:
+                coeffs = np.concatenate([[0], coeffs])
+                coeffs_err = np.concatenate([[0], coeffs_err])
             return coeffs, coeffs_err, results
 
         def robust(x, y, zero_int=False):
