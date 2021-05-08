@@ -2,6 +2,7 @@
 Functions for common statistical methods
 """
 from copy import deepcopy
+import matplotlib.pyplot as plt
 import numpy as np
 from numpy import ma
 import pandas as pd
@@ -591,6 +592,8 @@ class PolyFitModel(object):
             return lambda x, y, xerr, yerr: robust(x, y, zero_int=False)
         elif model_lower == 'robust0':
             return lambda x, y, xerr, yerr: robust(x, y, zero_int=True)
+        else:
+            raise TypeError('Unknown model type: "{}"'.format(model))
 
     def predict(self, x):
         """Calculate the y values predicted by the fit for new x values.
@@ -636,6 +639,20 @@ class PolyFitModel(object):
             return self.coeffs[term]
         except IndexError:
             return 0.0
+
+    def plot_fit(self, ax=None, freeze_xlims=True, label='{fit}', ls='--', color='gray', **style):
+        style['color'] = color
+        style['ls'] = ls
+        style['label'] = label.format(fit=self)
+
+        if ax is None:
+            ax = plt.gca()
+
+        x = np.array(ax.get_xlim())
+        y = self.predict(x)
+        ax.plot(x, y, **style)
+        if freeze_xlims:
+            ax.set_xlim(x)
 
 
 class RunningMean(object):
@@ -1502,9 +1519,9 @@ def nanabsmax(a, *args, **kwargs):
 def _handle_nans(method, x, y, xerr=None, yerr=None):
     not_nans = np.isfinite(x) & np.isfinite(y)
     if xerr is not None:
-        not_nans |= np.isfinite(xerr)
+        not_nans &= np.isfinite(xerr)
     if yerr is not None:
-        not_nans |= np.isfinite(yerr)
+        not_nans &= np.isfinite(yerr)
 
     if method.lower() == 'ignore':
         pass
