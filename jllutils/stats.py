@@ -46,7 +46,7 @@ class BootstrapSampler(object):
     convenient if doing a large number of samples.
     """
     def __init__(self, data, flat=False, with_replacement=True, default_sample_size=None, sampling_fxn=None,
-                 rvalues=1, rfill=np.nan):
+                 rvalues=1, rfill=np.nan, seed=None):
         """
         Parameters
         ----------
@@ -103,8 +103,9 @@ class BootstrapSampler(object):
         self._rvalues = rvalues
         self._rfill = rfill
         self._sampling_fxn = sampling_fxn
+        self._seed = seed
 
-    def sample(self, sample_size=None):
+    def sample(self, sample_size=None, sample_number=0):
         """Get a bootstrap sample group.
 
         Parameters
@@ -126,7 +127,8 @@ class BootstrapSampler(object):
             else:
                 sample_size = self._sample_size
 
-        return bootstrap_sample(self._data, sample_size, with_replacement=self._replacement)
+        seed = None if self._seed is None else self._seed + sample_number
+        return bootstrap_sample(self._data, sample_size, with_replacement=self._replacement, seed=seed)
 
     def run_bootstrap(self, n_groups, sample_size=None):
         """Run a series of bootstrap samplings on the data
@@ -165,7 +167,7 @@ class BootstrapSampler(object):
             raise TypeError('rvalues must be a tuple, list, or integer')
 
         for i in range(n_groups):
-            sample_data = self.sample(sample_size)
+            sample_data = self.sample(sample_size, sample_number=i)
             these_results = self._sampling_fxn(sample_data)
             if as_dict and isinstance(these_results, dict):
                 for k in self._rvalues:
@@ -179,7 +181,7 @@ class BootstrapSampler(object):
         return results
 
 
-def bootstrap_sample(data, sample_size, with_replacement=True):
+def bootstrap_sample(data, sample_size, with_replacement=True, seed=None):
     """Perform bootstrap sampling on an array of data.
 
     Selects N points from `data` and returns them. If `data` is multidimensional, the selection happens along the
@@ -200,6 +202,11 @@ def bootstrap_sample(data, sample_size, with_replacement=True):
         If `True`, then any single sample may be chosen multiple times. If `False`, a sample
         will be chosen at most once.
 
+    seed : Optional[int]
+        Used to set the random number generator that samples the data. If reproducibility
+        is needed, provide any positive integer. Passing that same integer later will ensure
+        that the same samples are taken.
+
     Returns
     -------
     array-like
@@ -212,10 +219,8 @@ def bootstrap_sample(data, sample_size, with_replacement=True):
     if n_data_pts < sample_size and not with_replacement:
         raise BootstrapError('Fewer than the requested {} points are available for sampling'.format(sample_size))
 
-    if with_replacement:
-        chosen_inds = np.random.randint(n_data_pts, size=sample_size)
-    else:
-        chosen_inds = random.sample(range(n_data_pts), sample_size)
+    rng = np.random.default_rng(seed=seed)
+    chosen_inds = rng.choice(np.arange(n_data_pts), size=sample_size, replace=with_replacement)
 
     return data[chosen_inds]
 
