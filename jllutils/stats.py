@@ -646,6 +646,36 @@ class PolyFitModel(object):
             return 0.0
 
     def plot_fit(self, ax=None, freeze_xlims=True, label='{fit}', ls='--', color='gray', **style):
+        """Plot the fit represented by this model on a set of axes
+
+        Parameters
+        ----------
+        ax
+            The axes to plot on, if not given, the current axes are used.
+
+        freeze_xlims : bool
+            If `True`, the xlimits of the plot will be reset to what they were before the fit was plotted.
+            This usually also keeps the limits from changing after future plotting calls on these axes,
+            which helps make the line stay long enough to stretch from one side of the plot to the other.
+
+        label : str
+            The string to use in the plot legend. It will be formatted with the bound :class:`PolyFitModel` 
+            as the format keyword `fit` - so `"{fit}"` (the default) is replaced with the string representation
+            of this fit.
+
+            .. note::
+               The label is *always* formatted using the `format` method, so any literal curly braces will need
+               to be doubled (e.g. for Latex, you'd need to pass `"\mathrm{{VSF}}"` instead of `"\mathrm{VSF}"`)
+
+        ls : str
+            The line style to use when plotting the fit.
+
+        color 
+            A Matplotlib colorspec to use when plotting the fit.
+
+        **style
+            Additional keyword arguments to the plot function.
+        """
         style['color'] = color
         style['ls'] = ls
         style['label'] = label.format(fit=self)

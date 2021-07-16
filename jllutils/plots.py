@@ -742,7 +742,7 @@ def y_log_ticks(ax, base=10, fmt='adapt'):
     _log_ticks(limits, ax.set_yticks, ax.set_yticklabels, base=base, fmt=fmt)
 
 
-def cb_log_ticks(cb, base=10, fmt='adapt'):
+def cb_log_ticks(cb, base=10, fmt='adapt', keep_ticks=False):
     """
     Set ticks on a colorbar assuming the current values are of a logarithm
 
@@ -756,13 +756,15 @@ def cb_log_ticks(cb, base=10, fmt='adapt'):
         * "simple" means that that the labels will be straight numbers, i.e. 10, 100, 0.1
         * "exp" means that the labels will be written as 10^x
 
+    :param keep_ticks: set to `True` to retain the current ticks on the colorbar, just converted to log10.
+
     :return: None
     """
-    limits = cb.get_clim()
-    _log_ticks(limits, cb.set_ticks, cb.set_ticklabels, base=base, fmt=fmt)
+    limits = cb.get_ticks() if keep_ticks else cb.get_clim()
+    _log_ticks(limits, cb.set_ticks, cb.set_ticklabels, base=base, fmt=fmt, keep_ticks=keep_ticks)
 
 
-def _log_ticks(limits, tick_fxn, tick_label_fxn, base, fmt):
+def _log_ticks(limits, tick_fxn, tick_label_fxn, base, fmt, keep_ticks=False):
     """
 
     :param limits:
@@ -778,9 +780,14 @@ def _log_ticks(limits, tick_fxn, tick_label_fxn, base, fmt):
         else:
             return '{:f}'.format(base ** exp)
 
-    ll = np.ceil(limits[0])
-    ul = np.floor(limits[1])
-    ticks = np.arange(ll, ul + 1)
+    if keep_ticks:
+        ticks = limits
+        ll = np.min(ticks)
+        ul = np.max(ticks)
+    else:
+        ll = np.ceil(limits[0])
+        ul = np.floor(limits[1])
+        ticks = np.arange(ll, ul + 1)
     if fmt == 'adapt':
         if ll < -4 or ul > 5:
             fmt = 'exp'
