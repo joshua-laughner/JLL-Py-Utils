@@ -675,6 +675,11 @@ class PolyFitModel(object):
 
         **style
             Additional keyword arguments to the plot function.
+
+        Returns
+        -------
+        [pyplot handle]
+            The handle to the line plotted
         """
         style['color'] = color
         style['ls'] = ls
@@ -685,9 +690,10 @@ class PolyFitModel(object):
 
         x = np.array(ax.get_xlim())
         y = self.predict(x)
-        ax.plot(x, y, **style)
+        h = ax.plot(x, y, **style)
         if freeze_xlims:
             ax.set_xlim(x)
+        return h
 
 
 class RunningMean(object):
