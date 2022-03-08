@@ -3,7 +3,6 @@ This module contains various functions to work more efficiently with netCDF file
 it easier to create netCDF files.
 """
 from __future__ import print_function, absolute_import, division, unicode_literals
-from copy import deepcopy
 
 import cftime
 from collections import OrderedDict
@@ -1071,3 +1070,60 @@ def copy_nc_var(src, dst, varname, vardata=None, convert_str='no'):
     else:
         # Numeric types should just copy directly
         newvar[tuple()] = vardata
+def ncdump(file_or_handle, var_att=None, list_atts=False, list_att_values=False, _indent_level=0):
+    """Print a tree visualization of a netCDF file
+
+    Prints out names of variables in a netCDF file. If groups a present, they are printed with variables
+    contained in them shown indented by one level. Attributes (with or without values) can also be printed.
+    In the tree, lines starting with "*" are groups, "-" are variables, and "+" are attributes.
+    
+    Parameters
+    ----------
+    file_or_handle : str, netCDF4.Dataset, or netCDF4.Group
+        The path to or open dataset/group handle of a netCDF file to print.
+
+    var_att : Optional[str]
+        The name of an attribute to print the value of after each variable name. Useful for attributes
+        like "long_name" or "description" that provide more information about what a particular variable
+        is. If this argument is not given, or the attribute isn't present on a variable, nothing is printed
+        after the variable name.
+
+    list_atts : bool
+        If ``True``, then prints out the names of attributes under variables (but not their values).
+        This keyword is ignored if ``list_att_values`` is ``True``.
+
+    list_att_values : bool
+        If ``True``, then prints out the names and values of attributes under variables.
+    """
+    indent = '  ' * _indent_level
+    with smart_nc(file_or_handle) as ds:
+        for grpname, group in ds.groups.items():
+            print('{indent}* {name}:'.format(indent=indent, name=grpname))
+            ncdump(group, var_att=var_att, list_atts=list_atts, list_att_values=list_att_values, _indent_level=_indent_level+1)
+        for varname, var in ds.variables.items():
+            dims = ['{dname} [{dlen}]'.format(dname=d, dlen=_find_dim_in_group_or_parents(ds, d).size) for d in var.dimensions]
+            dims = ', '.join(dims)
+            if var_att is not None and var_att in var.ncattrs():
+                print('{indent}- {name} ({dims}): {att}'.format(indent=indent, name=varname, dims=dims, att=var.getncattr(var_att)))
+            else:
+                print('{indent}- {name} ({dims})'.format(indent=indent, name=varname, dims=dims))
+
+            if list_atts or list_att_values:
+                att_indent = '  ' * (_indent_level+1)
+                for att in var.ncattrs():
+                    if list_att_values:
+                        print('{indent}+ {att} = {val}'.format(indent=att_indent, att=att, val=var.getncattr(att)))
+                    else:
+                        print('{indent}+ {att}'.format(indent=att_indent, att=att))
+
+
+def _find_dim_in_group_or_parents(grp, dimname):
+    if dimname in grp.dimensions:
+        return grp.dimensions[dimname]
+
+    while grp.parent is not None:
+        grp = grp.parent
+        if dimname in grp.dimensions:
+            return grp.dimensions[dimname]
+
+    return KeyError('No dimension named "{name}" found in this group or any parent'.format(dimname))
