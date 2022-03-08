@@ -360,7 +360,7 @@ class ColorMapper(mpl.cm.ScalarMappable):
     Map different values to colors in a colormap.
 
     This is useful when you wish to plot multiple series whose color corresponds to a data value, but do not want to
-    use a scatter plot. This class can be instantiated in two ways:
+    use a scatter plot. This class can be instantiated in several ways:
 
     1. Call the class directly, providing a min and max value and (optionally) a colormap to use, e.g.::
 
@@ -370,6 +370,14 @@ class ColorMapper(mpl.cm.ScalarMappable):
        e.g.::
 
         cm = ColorMapper.from_data(np.arange(10))
+
+    3. Use the ``from_norm`` method to specify the normalization manually. This allows the use of Matplotlib's
+       `various normalizations <https://matplotlib.org/stable/tutorials/colors/colormapnorms.html>`_ with the 
+       colormapper.
+
+    4. Use the ``from_discrete_norm`` method to set up a colormapper using any color map with discrete levels.
+       This can also be accomplished by passing a :class:`matplotlib.colors.BoundaryNorm` instance to ``from_norm``,
+       but ``from_discrete_norm`` automatically figures out the maximum number of colors in the selected colormap.
 
     Either method accepts all keywords for :class:`matplotlib.cm.ScalarMappable` except ``norm`` which is set
     automatically. Calling the instance will return an RGBA tuple that can be given to the ``color`` keyword of a
@@ -395,13 +403,56 @@ class ColorMapper(mpl.cm.ScalarMappable):
     :param **kwargs: additional keyword arguments passed through to :class:`matplotlib.cm.ScalarMappable`
     """
     def __init__(self, vmin, vmax, cmap=mpl.cm.jet, **kwargs):
-        norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
+        norm = kwargs.pop('norm', mpl.colors.Normalize(vmin=vmin, vmax=vmax))
         super(ColorMapper, self).__init__(norm=norm, cmap=cmap, **kwargs)
         # This is a necessary step for some reason. Not sure why
         self.set_array([])
 
     def __call__(self, value):
         return self.to_rgba(value)
+
+    @classmethod
+    def from_norm(cls, norm, cmap=mpl.cm.jet, **kwargs):
+        """Create a color mapper from a :class:`matplotlib.colors.Normalize` subclass instance.
+
+        Matplotlib offers `different ways to normalize the color scale <https://matplotlib.org/stable/tutorials/colors/colormapnorms.html>`_,
+        including logarithmic and symmetric around zero. This method allows you to specify different normalizations
+        to use with a color mapper instance.
+
+        :param norm: the normalization to use
+        :type norm: :class:`matplotlib.colors.Normalize` subclass
+
+        :param cmap: the color map to use. May be a string that gives the name of the colormap or a Colormap instance.
+        :type cmap: str or :class:`matplotlib.colors.Colormap`
+
+        :param **kwargs: additional keyword arguments passed through to :class:`matplotlib.cm.ScalarMappable`
+        """
+        return cls(vmin=None, vmax=None, cmap=cmap, norm=norm, **kwargs)
+
+    @classmethod
+    def from_discrete_norm(cls, boundaries, cmap=mpl.cm.jet, norm_kws=dict(), **kwargs):
+        """Create a color mapper that uses discrete color levels
+
+        A :class:`matplotlib.colors.BoundaryNorm` will map data to discrete color levels pulled from a continuous color scale
+        based on bins. It also requires you to specify how many colors from the color scale to use. This is inconvenient if you
+        want to use the whole range, since scales have different numbers of colors. This method will automatically use the full
+        range of colors. If you want to use a subset of colors, construct the :class:`~matplotlib.colors.BoundaryNorm` instance
+        yourself and pass it to ``from_norm``.
+
+        :param boundaries: A sequence of boundary edges used to map values to colors. For example, [0, 1, 2] would map values between
+        0 to 1 to one color and 1 to 2 to a second.
+
+        :param cmap: the color map to use. May be a string that gives the name of the colormap or a Colormap instance.
+        :type cmap: str or :class:`matplotlib.colors.Colormap`
+
+        :param norm_kws: additional keyword arguments passed through to :class:`matplotlib.colors.BoundaryNorm`. Note that the
+        ``boundaries`` and ``ncolors`` keywords are already specified.
+
+        :param **kwargs: additional keyword arguments passed through to :class:`matplotlib.cm.ScalarMappable`
+        """
+        if isinstance(cmap, str):
+            cmap = mpl.cm.get_cmap(cmap)
+        return cls(vmin=None, vmax=None, cmap=cmap, norm=mpl.colors.BoundaryNorm(boundaries=boundaries, ncolors=cmap.N, **norm_kws), **kwargs)
 
     @classmethod
     def from_data(cls, data, **kwargs):
