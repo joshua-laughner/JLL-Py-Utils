@@ -3,6 +3,7 @@ This module contains various functions to work more efficiently with netCDF file
 it easier to create netCDF files.
 """
 from __future__ import print_function, absolute_import, division, unicode_literals
+from copy import deepcopy
 
 import cftime
 from collections import OrderedDict
@@ -350,8 +351,8 @@ def _ncdf_to_df_internal(nch, dim_name, dim_size, var_dict, att_dfs, top_vars_on
 
     for group in nch.groups.values():
         _ncdf_to_df_internal(group, dim_name=dim_name, dim_size=dim_size, var_dict=var_dict, att_dfs=att_dfs,
-                             top_vars_only=top_vars_only, unmatched_vars=unmatched_vars,
-                             no_leading_slash=no_leading_slash, auto_time=auto_time)
+                             top_vars_only=top_vars_only, unmatched_vars=unmatched_vars, fullpath=fullpath,
+                             no_leading_slash=no_leading_slash, auto_time=auto_time, time_vars=time_vars)
 
 
 def get_nctime(ncvar, fill_action='nothing'):
@@ -917,3 +918,156 @@ class NcWrapper(object):
         group_keys = list(ds.groups.keys())
         var_keys = list(ds.variables.keys())
         return tuple(group_keys) + tuple(var_keys)
+
+
+def copy_nc_group(src, dst, recursive=True, exclude_dimensions=None, exclude_variables=None, exclude_groups=None, exclude_attributes=None):
+    """Copy any group, including the root group, and (optionally) all of its descendants from one netCDF file into another
+
+    Parameters
+    ----------
+    src : netCDF4.Group
+        Group to copy
+
+    dst : netCDF4.Group
+        Group to copy into
+
+    recursive : bool
+        If ``True``, all child groups are recursively copied. If ``False``, then groups contained within
+        ``src`` will be created in ``dst`` but left empty.
+
+    exclude_dimensions : Sequence[str]
+        A list of dimension names not to copy into ``dst``. If ``recursive`` is ``True``, this affects all
+        subordinate groups as well.
+
+    exclude_variables : Sequence[str]
+        A list of variable names not to copy into ``dst``. If ``recursive`` is ``True``, this affects all
+        subordinate groups as well.
+
+    exclude_groups : Sequence[str]
+        A list of group names not to copy into ``dst``. Groups named in this will not be copied, nor will any
+        groups under the excluded group. If ``recursive`` is ``True``, this check is done within each group
+        copied.
+
+    exclude_attributes : Sequence[str]
+        A list of attribute names not to copy into ``dst``. Only affects group level attributes; variable
+        attributes are not affected. If ``recursive`` is ``True``, this affects all subordinate groups as well.
+
+    Limitations
+    -----------
+    * Due to their complexity, character arrays can only be two dimensional and the second dimension *must* be 
+      the length of the individual strings (that is, each row in the character array must be one string).
+    * Variable length strings are supported, but must be one dimensions (i.e. a vector of strings).
+    * Other variable length types are not specifically excluded, but have not been tested and are not
+      guaranteed to work.
+    """
+    exclude_dimensions = set() if exclude_dimensions is None else set(exclude_dimensions)
+    exclude_variables = set() if exclude_variables is None else set(exclude_variables)
+    exclude_groups = set() if exclude_groups is None else set(exclude_groups)
+    exclude_attributes = set() if exclude_attributes is None else set(exclude_attributes)
+
+    grp_attrs = {k: v for k, v in src.__dict__.items() if k not in exclude_attributes}
+    dst.setncatts(grp_attrs)
+
+    for dimname, dimension in src.dimensions.items():
+        if dimname in exclude_dimensions:
+            continue
+        dimlen = len(dimension) if not dimension.isunlimited() else None
+        dst.createDimension(dimname, dimlen)
+
+    for varname in src.variables.keys():
+        if varname in exclude_variables:
+            continue
+
+        copy_nc_var(src, dst, varname)
+        
+        
+    for grpname, group in src.groups.items():
+        if grpname in exclude_groups:
+            continue
+
+        newgrp = dst.createGroup(grpname)
+        if recursive:
+            copy_nc_group(group, newgrp, recursive=recursive, exclude_dimensions=exclude_dimensions, exclude_variables=exclude_variables,
+                          exclude_groups=exclude_groups, exclude_attributes=exclude_attributes)
+
+
+def copy_nc_var(src, dst, varname, vardata=None, convert_str='no'):
+    """Copy a single netCDF variable from one group into another.
+
+    Parameters
+    ----------
+    src : netCDF4.Group
+        Group to copy the variable from
+
+    dst : netCDF4.Group
+        Group to copy the variable into
+
+    varname : str
+        Name of the variable to copy
+
+    vardata : Optional[numpy.ndarray]
+        If given, this is written as the data in ``dst`` rather than the original 
+        data in ``src``. Useful for subsetting the data.
+
+    convert_str : str
+        If "no" (default), then variable length strings and character arrays are both left as is.
+        If "stoc" (string to character), variable length strings are converted to character arrays.
+        ("ctos" is planned but not yet implemented.)
+
+    Limitations
+    -----------
+    * Due to their complexity, character arrays can only be two dimensional and the second dimension *must* be 
+      the length of the individual strings (that is, each row in the character array must be one string).
+    * Variable length strings are supported, but must be one dimensions (i.e. a vector of strings).
+    * Other variable length types are not specifically excluded, but have not been tested and are not
+      guaranteed to work.
+    """
+    def get_string(el):
+        """NetCDF arrays are awfully inconsistent about whether iterating
+        produces a string or an array with one string. This will try to handle
+        the case of extracting that string
+        """
+        try:
+            return el.item()
+        except AttributeError:
+            return el
+
+    variable = src[varname]
+    if vardata is None:
+        vardata = variable[tuple()]
+
+    if variable.dtype is str and convert_str == 'stoc':
+        strlen = max(len(get_string(s)) for s in vardata)
+        # For WHATEVER reason, `astype('S')` truncated some strings, so we have to calculate
+        # the length manually.
+        vardata = ncdf.stringtochar(np.array(vardata).astype(f'S{strlen}'))
+        strdim = f'c{strlen}'
+        if strdim not in dst.dimensions:
+            dst.createDimension(strdim, strlen)
+        newvar = dst.createVariable(varname, vardata.dtype, (list(variable.dimensions)[0], strdim))
+    else:
+        newvar = dst.createVariable(varname, variable.datatype, variable.dimensions)
+        newvar.setncatts(variable.__dict__)
+
+    if variable.dtype is str and convert_str != 'stoc':
+        # Handle vline strings. I was able to do newvar[:] = variable[:], but passing 
+        # an array in as vardata didn't work well for some reason. So we loop here as 
+        # well as with regular character arrays.
+        #
+        # But if we converted to a character array, then it should be able to just copy
+        # the whole thing at once in the else block.
+        if variable.ndim != 1:
+            raise NotImplementedError('Cannot copy vlen strings with >1 dimension')
+        for i in range(vardata.shape[0]):
+            newvar[i] = get_string(vardata[i])
+        
+    elif re.match(r'[\|<][SU]\d+', str(variable.dtype)):
+        # Handle 2D char arrays. It is important that this comes after the attributes are set
+        # so that the characters are interpreted correctly, and we have to do one at a time
+        # or the slices don't match in size
+        for i in range(vardata.shape[0]):
+            newvar[i] = get_string(vardata[i])
+
+    else:
+        # Numeric types should just copy directly
+        newvar[tuple()] = vardata
