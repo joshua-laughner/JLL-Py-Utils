@@ -1610,3 +1610,32 @@ def reldiff(a, b, denom='first'):
 
     return (b - a)/d
 
+
+def isoutlier(data, m=2):
+    """Find outliers in data
+
+    Tests for outliers using the median absolute deviation. Marks a data
+    point as an outlier if the absolute deviation from the median (AD) is ``>= m``
+    times the median AD.
+
+    Parameters
+    ----------
+    data
+        A Numpy array or similar sequence that supports vectorized operations. 
+
+    m
+        Criterion for marking a point as an outlier. See main function description
+        for details.
+
+    Returns
+    -------
+    index
+        A logical index array, the same shape as ``data``, which is ``True`` for
+        any data points that are outliers.
+    """
+    # from https://stackoverflow.com/a/16562028
+    d = np.abs(data - np.nanmedian(data))
+    mdev = np.nanmedian(d)
+    s = d / mdev if mdev else np.zeros_like(data)
+    
+    return s >= m 
