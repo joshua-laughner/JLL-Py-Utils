@@ -355,6 +355,28 @@ def bars(ax, x, height, width=None, relwidth=0.8, color=None, **kwargs):
     return handles
 
 
+def colormap_out_of_bounds(cmap='viridis', under=None, over=None):
+    """Create a colormap with special colors for out-of-bounds values
+
+    This will create a colormap that will show different colors when values exceed the vmin or vmax
+    set in the call to the plotting function. By default, neither are set. You must give one of the
+    ``under`` or ``over`` keywords to a non-``None`` value. You will usually want to use this with the
+    ``extend`` keyword for a colorbar.
+
+    :param cmap: A colormap name or instance. A copy will be made and returned.
+    :param under: A matplotlib color spec to use for values below the ``vmin`` limit.
+    :param over: A matplotlib color spec to use for values above the ``vmax`` limit.
+    """
+    if isinstance(cmap, str):
+        cmap = mpl.cm.get_cmap(cmap)
+    cmap = cmap.copy()
+    if under:
+        cmap.set_under(under)
+    if over:
+        cmap.set_over(over)
+    return cmap
+
+
 class ColorMapper(mpl.cm.ScalarMappable):
     """
     Map different values to colors in a colormap.
