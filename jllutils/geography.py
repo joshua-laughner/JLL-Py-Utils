@@ -257,3 +257,45 @@ def plot_shapes_from_nc(shpnc, ax=None, keep_extent=True, **style):
 
     if keep_extent:
         ax.set_extent(extent)
+
+
+def great_circle_distance(lon1: np.ndarray, lat1: np.ndarray, lon2: np.ndarray, lat2: np.ndarray, earth_radius: float = 6378.137) -> np.ndarray:
+    """Compute the great circle distances between two sets of lat/lons, in kilometers by default
+    
+    Parameters
+    ----------
+    lon1, lat1
+        Arrays of the starting coordinates.
+
+    lon2, lat2
+        Arrays of the ending coordinates.
+
+    earth_radius
+        Value to use for the radius of Earth in the distance calculation. The units of this value set the units of the output.
+
+    Returns
+    -------
+    distances
+        An array of distances between the points, in the same units as ``earth_radius``.
+
+    Notes
+    -----
+    1. This uses Numpy array operations internally, so either/both of the lat/lon pairs may be scalar floats if you need just a single
+       distance or multiple distances to a single point.
+    2. This uses the Haversine formula, which is known to have rounding errors for antipodal points. 
+    """
+    if np.size(lon1) != np.size(lat1):
+        raise TypeError('lon1 and lat1 are different sizes')
+    if np.size(lon2) != np.size(lat2):
+        raise TypeError('lon2 and lat2 are different sizes')
+
+    lon1 = np.deg2rad(lon1)
+    lat1 = np.deg2rad(lat1)
+    lon2 = np.deg2rad(lon2)
+    lat2 = np.deg2rad(lat2)
+    dlon = np.abs(lon2 - lon1)
+    dlat = np.abs(lat2 - lat1)
+    
+    inner = np.sin(dlat/2)**2 + (1 - np.sin(dlat/2)**2 - np.sin((lat1 + lat2)/2)**2) * np.sin(dlon/2)**2
+    central_angle = 2 * np.arcsin(np.sqrt(inner))
+    return central_angle * earth_radius
