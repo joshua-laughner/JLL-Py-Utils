@@ -3,6 +3,7 @@ This module contains various functions to work more efficiently with netCDF file
 it easier to create netCDF files.
 """
 from __future__ import print_function, absolute_import, division, unicode_literals
+from typing import Optional
 
 import cftime
 from collections import OrderedDict
@@ -10,9 +11,14 @@ import contextlib
 import datetime as dt
 from hashlib import sha1
 import netCDF4 as ncdf
+from netrc import netrc
 import numpy as np
 import pandas as pd
 import re
+import xarray as xr
+
+from pydap.client import open_url
+from pydap.cas.urs import setup_session
 
 
 class VarnameConflictError(Exception):
@@ -1148,3 +1154,53 @@ def _find_dim_in_group_or_parents(grp, dimname):
             return grp.dimensions[dimname]
 
     return KeyError('No dimension named "{name}" found in this group or any parent'.format(dimname))
+
+
+def read_opendap_url(url: str, variables: dict, date: Optional[dt.datetime] = None, host='urs.earthdata.nasa.gov'):
+    """Read data from an OpenDAP URL
+
+    Parameters
+    ----------
+    url
+        The OpenDAP URL to download from. Date elements in the URL can be replaced with ``{date:FMT}`` where ``FMT`` is a datetime 
+        formatting string. If you pass a URL with this in it, you must also pass the ``date`` argument.
+
+    variables
+        A list or dictionary listing variables to read from the OpenDAP repo. If a list, then it must be variable names in the root
+        group of the OpenDAP repo, and the output dictionary will use those names as keys. If a dictionary, then the keys will be the
+        keys in the output and the values are the variables in the OpenDAP repo.
+
+        Currently I've not worked out whether OpenDAP repos can have netCDF-like groups, or how to access them if they do.
+
+    date
+        The date to download; may be omitted if that is already included in the URL (i.e. the URL has no ``{date}`` format elements.)
+
+    host
+        The host name in your ~/.netrc file to use credentials from to login.
+
+    Returns
+    -------
+    data
+        A dictionary with the variables as numpy arrays in the values. 
+    """
+
+    if date is not None:
+        print(f'Downloading data for {date:%Y-%m-%d}')
+        url = url.format(date=date)
+    else:
+        print(f'Downloading data from {url}')
+
+    if not isinstance(variables, dict):
+        variables = {k: k for k in variables}
+        
+    user, _, password = netrc().hosts[host]
+    session = setup_session(user, password, check_url=url)
+    pydap_ds = open_url(url, session=session)
+    
+    xr_store = xr.backends.PydapDataStore(pydap_ds)
+    with xr.open_dataset(xr_store) as ds:
+        data = dict()
+        for key, variable in variables.items():
+            data[key] = ds[variable].data
+
+    return data

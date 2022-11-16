@@ -42,7 +42,7 @@ class Subplots(object):
             ax = sp.next_subplot()
             ax.plot(vec)
     """
-    def __init__(self, nplots, nx=None, ny=None, figsize=(8,6)):
+    def __init__(self, nplots, nx=None, ny=None, figsize=(8,6), subplot_kw=None):
         """Create a Subplots instance
 
         Parameters
@@ -60,6 +60,9 @@ class Subplots(object):
         figsize : tuple
             The size of *each subplot* as a tuple, `(width, height)`, in inches.
             The final size of the figure will be `nx*width` by `ny*height`.
+
+        subplot_kw : dict
+            Additional keyword arguments to pass to :func:`add_subplot`.
 
         Notes
         -----
@@ -83,6 +86,7 @@ class Subplots(object):
         self.fig = plt.figure(figsize=(sizex*self.nx, sizey*self.ny))
         self.iplot = 0
         self.axes = np.full([self.ny, self.nx], None)
+        self.subplot_kw = dict() if subplot_kw is None else subplot_kw
     
     def next_subplot(self):
         """Create the next subplot and return the handle to it
@@ -93,7 +97,7 @@ class Subplots(object):
             Handle to the newly created axes.
         """
         self.iplot += 1
-        ax = self.fig.add_subplot(self.ny, self.nx, self.iplot)
+        ax = self.fig.add_subplot(self.ny, self.nx, self.iplot, **self.subplot_kw)
         idx = np.unravel_index(self.iplot-1, self.axes.shape)
         self.axes[idx] = ax
         return ax

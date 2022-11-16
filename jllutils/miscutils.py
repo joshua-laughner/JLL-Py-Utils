@@ -2,6 +2,7 @@
 Utilities that don't fit any other well defined category
 """
 from abc import ABCMeta, abstractmethod
+from contextlib import contextmanager
 import numpy as np
 import os
 from pathlib import Path
@@ -909,3 +910,30 @@ def parse_fortran_format(fmt_str, rtype='fmtstr', bare_fmt=False):
         return types
     else:
         raise NotImplementedError('rtype == {}'.format(rtype))
+
+
+@contextmanager
+def temporary_working_dir(working_dir):
+    """Temporarily change the working directory
+
+    Useful in cases where you need to call functions that expect to be in
+    a directory with a particular structure. Use as a context manager
+    to ensure that the working directory is changed back to the
+    original one when the block exits, for example::
+
+        # cwd is '.'
+        with temporary_working_dir('./run-dir'):
+            # cwd is './run-dir'
+            dir_dependent_function(...)
+        # cwd is back to '.', even if dir_dependent_function errors
+
+    Paramters
+    --------
+    working_dir
+        Path to the directory to change to; relative paths are interpreted
+        relative to the current working directory.
+    """
+    curr_dir = Path(os.getcwd()).expanduser().resolve()
+    os.chdir(working_dir)
+    yield
+    os.chdir(curr_dir)
