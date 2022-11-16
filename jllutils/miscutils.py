@@ -3,6 +3,9 @@ Utilities that don't fit any other well defined category
 """
 from abc import ABCMeta, abstractmethod
 from contextlib import contextmanager
+import logging
+from typing import Optional, Union
+
 import numpy as np
 import os
 from pathlib import Path
@@ -937,3 +940,95 @@ def temporary_working_dir(working_dir):
     os.chdir(working_dir)
     yield
     os.chdir(curr_dir)
+
+
+def logging_level(level_name: str) -> int:
+    """Get the numeric logging level that corresponds to a level name
+
+    Parameters
+    ----------
+    level_name
+        The name to search for. Will be upper-cased for the search, so both "warning"
+        and "Warning" will be searched for as "WARNING"
+
+    Returns
+    -------
+    level
+        The integer value of the log level.
+
+    Raises
+    ------
+    ValueError
+        If the given name does not correspond to any level number between 0 and ``logging.CRITICAL``.
+    """
+    level_name = level_name.upper()
+    for level in range(0, logging.CRITICAL+1):
+        this_name = logging.getLevelName(level)
+        if level_name == this_name:
+            return level
+
+    raise ValueError(f'No level corresponding to the string {level_name}')
+
+
+@contextmanager
+def logging_context(level: Union[int, str] = logging.CRITICAL, logger: Optional[logging.Logger] = None):
+    """Temporarily suspend log messages below a certain level
+
+    Used as a context manager, any logging within the context block will be limited to messages at or
+    above ``level`` in severity. If ``logger`` is not given, then this will apply globally. If ``logger``
+    is given, then only that logger will be affected.
+
+    Notes
+    -----
+    * The behavior differs slightly from :func:`logging.disable`; in that function, messages with severity
+      ``level`` will be suppressed. Here, that level is kept.
+    * If you pass a string for ``level``, it will be upper-cased before passing to the various log functions
+      on the assumption that all log levels are upper case.
+    * Likewise, if passing a string while ``logger = None``, it must be a name corresponding to a value between
+      0 and ``logging.CRITICAL`` knowns by :func:`logging.getLevelName`.
+    * This uses :func:`logging.disable` to affect the global logging (i.e. when ``logger = None``) and 
+      ``logger.setLevel(level)`` when ``logger`` is not ``None``.  If these methods are used separately
+      inside this context manager, then they can override the value set by this manager, *and* their
+      value will be overridden when the block exits.
+
+    Examples
+    --------
+
+    Set all logging to only WARNING messages and higher::
+
+        with logging_pause('WARNING'):
+            logging.warning('Look out!')  # will print
+            logging.info('Pothole ahead.'')  # will not print
+
+    Set only a custom logger to hide messages except CRITICAL ones::
+
+        cust_logger = logging.getLogger('my-custom-logger')
+        with logging_pause(logger=cust_logger):
+            cust_logger.warning('Look out!')  # will not print
+            logging.warning('Look out ahead!')  # will print
+
+    Calling ``logging.disable`` inside a ``logging_pause`` block::
+
+        with logging_pause(level='WARNING'):
+            logging.info('Hi')  # will not print
+            logging.warning('Eek!')  # will print
+
+            logging.disable(logging.WARNING)
+            logging.warning('Uh oh!')  # will *not* print because of how logging.disable works
+
+        logging.warning('Did we make it?')  # will print because when the with block exits, logging.disable is called with logging.NOTSET
+    """
+    if logger is None:
+        if isinstance(level, str):
+            level = logging_level(level)
+        logging.disable(level-1)
+        yield
+        logging.disable(logging.NOTSET)
+    else:
+        if isinstance(level, str):
+            level = level.upper()
+        curr_level = logger.level
+        logger.setLevel(level)
+        yield
+        logger.setLevel(curr_level)
+

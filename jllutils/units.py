@@ -242,10 +242,12 @@ pressure.add_multiple_conversions(metric_prefixes='full',
                                   atmosphere=1.01325e5, atmospheres=1.01325e5)
 pressure.add_conversion('mmHg', 133.322, metric_prefixes=False)
 
-temperature = UnitConverter('C', **{'degC': 1.0, 'degrees C': 1.0, 'degrees celsius': 1.0})
+temperature = UnitConverter('C', **{'degC': 1.0, 'degrees C': 1.0, 'degrees celsius': 1.0, 'degrees_Celsius': 1.0})
 temperature.add_conversion('F', 5 / 9, 32)
+temperature.add_conversion('degrees_Fahrenheit', 5 / 9, 32, metric_prefixes=False)
 temperature.add_conversion('K', 1., 273.15)
 temperature.add_conversion('Kelvin', 1., 273.15, metric_prefixes='full')
+temperature.add_conversion('degrees_Kelvin', 1., 273.15, metric_prefixes=False)
 
 mixing_ratio = UnitConverter('ppp', ppm=1e-6, ppmv=1e-6, ppb=1e-9, ppbv=1e-9, ppt=1e-12, pptv=1e-12, metric_prefixes=False)
 _mol_ratios = {'mol/mol': 1.0, 'mol mol^-1': 1.0, 'mol mol-1': 1.0}
