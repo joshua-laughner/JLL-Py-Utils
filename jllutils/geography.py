@@ -184,7 +184,7 @@ def _get_lat_lon_poly(geo, curr_poly_index):
     return lon, lat, poly_index, curr_poly_index
                 
                 
-def plot_shapes_from_csv(shpcsv, ax=None, filter_fxn=None, **style):
+def plot_shapes_from_csv(shpcsv, ax=None, filter_fxn=None, keep_extent=True, **style):
     """Plot geographic shapes from a .csv file created by :func:`shapefile_to_csv`
 
     shpcsv : pathlike
@@ -196,6 +196,11 @@ def plot_shapes_from_csv(shpcsv, ax=None, filter_fxn=None, **style):
     filter_fxn : callable
         A function that, given the .csv dataframe as the sole argument, returns a
         logical or numerical index vector for the rows of the dataframe to plot.
+
+    keep_extent : bool
+        If ``True``, keeps the bounds that the map had when this function was called. Note that
+        this does so by calling `set_extent`, so any future plots to these axis will not update
+        the limits either.
 
     **style
         Keywords to pass to :func:`matplotlib.pyplot.plot`. Note that "color" is set to black by default.
@@ -209,12 +214,17 @@ def plot_shapes_from_csv(shpcsv, ax=None, filter_fxn=None, **style):
     if filter_fxn is not None:
         xx = filter_fxn(shpdf)
         shpdf = shpdf.loc[xx]
+
+    extent = ax.get_xlim() + ax.get_ylim()
         
     for _, feature in shpdf.groupby('polygon_index'):
         ax.plot(feature['lon'].to_numpy(), feature['lat'].to_numpy(), **style)
+
+    if keep_extent:
+        ax.set_extent(extent)
         
         
-def plot_shapes_from_nc(shpnc, ax=None, **style):
+def plot_shapes_from_nc(shpnc, ax=None, keep_extent=True, **style):
     """Plot geographic shapes from a netCDF 4 file created by :func:`shapefile_to_ncdf`
 
     shpnc : pathlike
@@ -222,6 +232,11 @@ def plot_shapes_from_nc(shpnc, ax=None, **style):
 
     ax
         Axes to plot into; if not given, the current axes are used.
+
+    keep_extent : bool
+        If ``True``, keeps the bounds that the map had when this function was called. Note that
+        this does so by calling `set_extent`, so any future plots to these axis will not update
+        the limits either.
 
     **style
         Keywords to pass to :func:`matplotlib.pyplot.plot`. Note that "color" is set to black by default.
@@ -235,5 +250,10 @@ def plot_shapes_from_nc(shpnc, ax=None, **style):
         lon = ds['lon'][:]
         lat = ds['lat'][:]
         
+    extent = ax.get_xlim() + ax.get_ylim()
+
     for x, y in zip(lon, lat):
         ax.plot(x, y, **style)
+
+    if keep_extent:
+        ax.set_extent(extent)

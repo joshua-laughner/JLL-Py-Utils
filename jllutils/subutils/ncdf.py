@@ -1070,7 +1070,9 @@ def copy_nc_var(src, dst, varname, vardata=None, convert_str='no'):
     else:
         # Numeric types should just copy directly
         newvar[tuple()] = vardata
-def ncdump(file_or_handle, var_att=None, list_atts=False, list_att_values=False, _indent_level=0):
+
+        
+def ncdump(file_or_handle, var_att=None, list_atts=False, list_att_values=False, grep=None, grep_re=None, _indent_level=0):
     """Print a tree visualization of a netCDF file
 
     Prints out names of variables in a netCDF file. If groups a present, they are printed with variables
@@ -1094,13 +1096,32 @@ def ncdump(file_or_handle, var_att=None, list_atts=False, list_att_values=False,
 
     list_att_values : bool
         If ``True``, then prints out the names and values of attributes under variables.
+
+    grep : Optional[str]
+        If given, will only print variables whose names include this string (case insensitive).
+
+    grep_re: Optional[str | re.Pattern]
+        If given, will only print variables whose names return a match to the given regular expression
+        (called with ``search``). This can either be a string which is a valid pattern or a compiled
+        :class:`re.Pattern` (i.e. the return value from :func:`re.compile`). The latter is the only way
+        to include flags.
     """
+    if grep:
+        grep = grep.lower()
+    if isinstance(grep_re, str):
+        grep_re = re.compile(grep_re)
+        
     indent = '  ' * _indent_level
     with smart_nc(file_or_handle) as ds:
         for grpname, group in ds.groups.items():
             print('{indent}* {name}:'.format(indent=indent, name=grpname))
-            ncdump(group, var_att=var_att, list_atts=list_atts, list_att_values=list_att_values, _indent_level=_indent_level+1)
+            ncdump(group, var_att=var_att, list_atts=list_atts, list_att_values=list_att_values, grep=grep, grep_re=grep_re, _indent_level=_indent_level+1)
         for varname, var in ds.variables.items():
+            if grep and grep not in varname.lower():
+                continue
+            if grep_re and not grep_re.search(varname):
+                continue
+
             dims = ['{dname} [{dlen}]'.format(dname=d, dlen=_find_dim_in_group_or_parents(ds, d).size) for d in var.dimensions]
             dims = ', '.join(dims)
             if var_att is not None and var_att in var.ncattrs():

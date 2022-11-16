@@ -374,6 +374,28 @@ def bars(ax, x, height, width=None, relwidth=0.8, color=None, **kwargs):
     return handles
 
 
+def colormap_out_of_bounds(cmap='viridis', under=None, over=None):
+    """Create a colormap with special colors for out-of-bounds values
+
+    This will create a colormap that will show different colors when values exceed the vmin or vmax
+    set in the call to the plotting function. By default, neither are set. You must give one of the
+    ``under`` or ``over`` keywords to a non-``None`` value. You will usually want to use this with the
+    ``extend`` keyword for a colorbar.
+
+    :param cmap: A colormap name or instance. A copy will be made and returned.
+    :param under: A matplotlib color spec to use for values below the ``vmin`` limit.
+    :param over: A matplotlib color spec to use for values above the ``vmax`` limit.
+    """
+    if isinstance(cmap, str):
+        cmap = mpl.cm.get_cmap(cmap)
+    cmap = cmap.copy()
+    if under:
+        cmap.set_under(under)
+    if over:
+        cmap.set_over(over)
+    return cmap
+
+
 class ColorMapper(mpl.cm.ScalarMappable):
     """
     Map different values to colors in a colormap.
@@ -471,7 +493,18 @@ class ColorMapper(mpl.cm.ScalarMappable):
         """
         if isinstance(cmap, str):
             cmap = mpl.cm.get_cmap(cmap)
-        return cls(vmin=None, vmax=None, cmap=cmap, norm=mpl.colors.BoundaryNorm(boundaries=boundaries, ncolors=cmap.N, **norm_kws), **kwargs)
+        return cls(vmin=None, vmax=None, cmap=cmap, norm=discrete_norm(boundaries, cmap, values_are_bounds=True, **norm_kws), **kwargs)
+
+    @classmethod
+    def from_discrete_values(cls, values, cmap=mpl.cm.jet, norm_kws=dict(), **kwargs):
+        """Create a color mappers that has one color per given value.
+
+        :param values:  Values that should be represented in the colorbar. Each unique value will have
+         its own colors.
+
+        Other parameters are identical to :meth:`from_discrete_norm`.
+        """
+        return cls(vmin=None, vmax=None, cmap=cmap, norm=discrete_norm(values, cmap, values_are_bounds=False, **norm_kws), **kwargs)
 
     @classmethod
     def from_data(cls, data, **kwargs):
@@ -487,6 +520,42 @@ class ColorMapper(mpl.cm.ScalarMappable):
         :rtype: :class:`ColorMapper`
         """
         return cls(vmin=np.nanmin(data), vmax=np.nanmax(data), **kwargs)
+
+
+def discrete_norm(values, cmap='viridis', values_are_bounds=False, **norm_kws):
+    """Construct a Matplotlib normalization for discrete values
+
+    :param values: Values that should be represented in the colorbar. See ``values_are_bounds``
+     for how these are interpreted.
+
+    :param cmap: Which colormap will be used. Note that this does not automatically 
+     ensure that the plot uses this colormap, but only that the discrete color map
+     uses the full range of colors available.
+
+    :param values_are_bounds: If ``False`` (the default), then the values given are assumed
+     to be the exact values that should be displayed in the color map, and each will receive
+     its own color. If ``True``, then these are interpreted as the borders between colors,
+     with the first and last specifying the min and max values. 
+
+    :param norm_kws: Additional keyword arguments are passed through to 
+     :class:`matplotlib.colors.BoundaryNorm`.
+    """
+    if values_are_bounds:
+        boundaries = values
+    else:
+        boundaries = _vals_to_boundaries(values)
+    if isinstance(cmap, str):
+        cmap = mpl.cm.get_cmap(cmap)
+    return mpl.colors.BoundaryNorm(boundaries=boundaries, ncolors=cmap.N, **norm_kws)
+
+
+def _vals_to_boundaries(values):
+    svalues = np.unique(values)
+    boundaries = np.zeros(svalues.size + 1)
+    boundaries[1:-1] = 0.5*(svalues[:-1] + svalues[1:]) 
+    boundaries[0] = boundaries[1] - (boundaries[2] - boundaries[1])
+    boundaries[-1] = boundaries[-2] + (boundaries[-2] - boundaries[-3])
+    return boundaries
 
 
 def pcolordiff(x_or_data, y=None, data=None, plotting_fxn=plt.pcolormesh, fraction_of_max=1.0, cmap='RdYlBu', **plot_kwargs):
