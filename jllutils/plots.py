@@ -42,7 +42,7 @@ class Subplots(object):
             ax = sp.next_subplot()
             ax.plot(vec)
     """
-    def __init__(self, nplots, nx=None, ny=None, figsize=(8,6)):
+    def __init__(self, nplots, nx=None, ny=None, sharex=False, sharey=False, figsize=(8,6)):
         """Create a Subplots instance
 
         Parameters
@@ -56,6 +56,9 @@ class Subplots(object):
             you. Both may be specified; if the given array size is less than
             `nplots`, a `ValueError` is raised. If both are `None`, then `nx` is
             set to 2 and `ny` is computed.
+
+        sharex, sharey : bool
+            Whether the x- and y- axes are shared by the plots (range, scale, etc.)
 
         figsize : tuple
             The size of *each subplot* as a tuple, `(width, height)`, in inches.
@@ -80,6 +83,8 @@ class Subplots(object):
 
         self.nx = nx
         self.ny = nplots // nx + ((nplots % nx) > 0)
+        self.sharex = sharex
+        self.sharey = sharey
         self.fig = plt.figure(figsize=(sizex*self.nx, sizey*self.ny))
         self.iplot = 0
         self.axes = np.full([self.ny, self.nx], None)
@@ -93,9 +98,23 @@ class Subplots(object):
             Handle to the newly created axes.
         """
         self.iplot += 1
-        ax = self.fig.add_subplot(self.ny, self.nx, self.iplot)
-        idx = np.unravel_index(self.iplot-1, self.axes.shape)
-        self.axes[idx] = ax
+        ind_y, ind_x = np.unravel_index(self.iplot-1, self.axes.shape)
+        sharex_ax = None
+        sharey_ax = None
+        if self.iplot > self.nx and self.sharex:
+            # If not in the first row, get the first axes in this column
+            sharex_ax = self.axes[0, ind_x]
+        if ind_x != 0 and self.sharey:
+            # If not in the first column, get the first axes in this row
+            sharey_ax = self.axes[ind_y, 0]
+        ax = self.fig.add_subplot(self.ny, self.nx, self.iplot, sharex=sharex_ax, sharey=sharey_ax)
+        if self.sharex and ind_y < self.ny - 1:
+            plt.setp(ax.get_xticklabels(), visible=False)
+        if self.sharey and ind_x != 0:
+            plt.setp(ax.get_yticklabels(), visible=False)
+        
+        
+        self.axes[ind_y, ind_x] = ax
         return ax
 
     @staticmethod
