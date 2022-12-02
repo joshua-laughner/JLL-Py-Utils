@@ -378,6 +378,151 @@ def bars(ax, x, height, width=None, relwidth=0.8, color=None, **kwargs):
     return handles
 
 
+def histnorm(a, bins=10, range=None, cumulative=False, histtype='bar', normtype='number', orientation='vertical', scale=1, log=False, color=None, linewidth=None, lw=None, label='', ax=None):
+    """An alternative histogram plot that allows different methods of normalizing the bars beyond the density option in `matplotlib`'s `hist` function
+
+    Parameters
+    ----------
+    a
+        The data to plot a histogram of
+
+    bins
+        The number of bins or a sequence giving bin edges.
+
+    range
+        The range of values to cover by the bins if `bins` is a number.
+
+    cumulative
+        Mimics the behavior of `hist` where `True` causes the histogram to plot the cumulative normalized value
+        from low to high value and `-1` reverses that (high to low). Not recommended with `normtype = "max"`
+
+    histtype
+        Same as the regular `hist` function, except only "bar" and "step" are supported types.
+
+    normtype
+        Determines the normalization:
+
+        * "number" (default) divides each bin by the total number of samples
+        * "max" divides each bin by the largest bin value
+
+    orientation
+        "vertical" or "horizontal", sets the direction of the bars/steps.
+
+    scale
+        A value multiplied by the normalized bin values before plotting. If this is the string "%", then the values are multiplied by 100 
+        to convert from fraction to percent.
+
+    log
+        Set to ``True`` to make the histogram count axis logarithmic.
+
+    color
+        Color to use for the bars or step lines.
+
+    linewidth / lw
+        Width to use for the step lines; only one of these can be given.
+
+    label
+        Label to use for the legend.
+
+    ax
+        Axes to plot into. If not given, the axes returned by :func:`matplotlib.pyplot.gca` are used.
+
+    Returns
+    -------
+    n
+        The bin values (normalized and scaled)
+
+    bin_edges
+        The edges of the bins. If ``bins`` was a sequence, these will be the same as input.
+
+    handles
+        A list of handles to the patch objects; with ``histtype = "bar"`, this will be a :class:`matplotlib.container.BarContainer`
+        containing the individual rectangle patches, with ``histtype = "step", this will be a list with one 
+        :class:`matplotlib.patches.Polygon` object.
+    """
+    if lw is not None and linewidth is not None:
+        raise TypeError('Cannot pass both `lw` and `linewidth`')
+    if lw is not None:
+        linewidth = lw
+    if isinstance(scale, str) and scale == '%':
+        scale = 100
+
+    ax = ax or plt.gca()
+
+    if color is None:
+        color = ax._get_lines.get_next_color()
+
+
+    n, bin_edges = np.histogram(a, bins=bins, range=range)
+
+    if normtype == 'number':
+        # Normalize the bins so that the sum across bins = 1. Can't do in place for some reason (probably because of type = int)
+        n = n / np.sum(n) * scale
+    elif normtype == 'max':
+        n = n / np.max(n) * scale
+    else:
+        raise TypeError(f'Unknown normtype: {normtype}')
+
+    if orientation not in {'vertical', 'horizontal'}:
+        raise TypeError(f'Unknown orientation: {orientation}')
+
+    if cumulative == -1:
+        n = np.flip(np.cumsum(np.flip(n)))
+    elif cumulative:
+        n = np.cumsum(n)
+
+    if histtype == 'bar':
+        from matplotlib.patches import Rectangle
+        from matplotlib.container import BarContainer
+
+        patches = []
+        if orientation == 'vertical':
+            for height, left, right in zip(n, bin_edges[:-1], bin_edges[1:]):
+                rect = Rectangle((left, 0), right - left, height, color=color, label=label)
+                label = ''
+                ax.add_patch(rect)
+                patches.append(rect)
+        elif orientation == 'horizontal':
+            for width, bottom, top in zip(n, bin_edges[:-1], bin_edges[1:]):
+                rect = Rectangle((0, bottom), width, top - bottom, color=color, label=label)
+                label = ''
+                ax.add_patch(rect)
+                patches.append(rect)
+        handles = BarContainer(patches)
+
+    elif histtype == 'step':
+        from matplotlib.patches import Polygon
+
+        points = np.full([2*bin_edges.size, 2], np.nan)
+        nj = 0
+        ni = n[0]
+        for i, edge in enumerate(bin_edges):
+            points[2*i, :] = [edge, nj]
+            points[2*i + 1, :] = [edge, ni]
+            nj = ni
+            ni = n[i+1] if i+1 < n.size else 0
+
+        if orientation == 'horizontal':
+            points = np.flip(points, axis=1)
+
+        poly = Polygon(points, edgecolor=color, facecolor=None, fill=False, linewidth=linewidth, label=label, closed=False)
+        ax.add_patch(poly)
+        handles = [poly]
+
+    else:
+        raise TypeError(f'Unknown histtype: {histtype}')
+
+    ax.relim()
+    ax.autoscale_view()
+
+    if log and orientation == 'vertical':
+        ax.set_yscale('log')
+    elif log and orientation == 'horizontal':
+        ax.set_xscale('log')
+
+    return n, bin_edges, handles
+
+
 def colormap_out_of_bounds(cmap='viridis', under=None, over=None):
     """Create a colormap with special colors for out-of-bounds values
 
