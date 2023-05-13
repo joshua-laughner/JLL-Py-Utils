@@ -7,7 +7,7 @@ import numpy as np
 from numpy import ma
 
 
-def seq_mat(shape, dtype=np.int, order='C'):
+def seq_mat(shape, dtype=int, order='C'):
     """
     Return an array with elements numbered as they are ordered in memory.
 
@@ -30,7 +30,7 @@ def seq_mat(shape, dtype=np.int, order='C'):
     return np.reshape(mat, shape, order=order)
 
 
-def coord_mat(shape, dtype=np.int, order='C'):
+def coord_mat(shape, dtype=int, order='C'):
     """
     Return an array where the values correspond to the subscript indicies.
 
@@ -69,7 +69,7 @@ def masked_full(*args, **kwargs):
     return ma.masked_array(np.full(*args, **kwargs))
 
 
-def masked_all(shape, fill_value=np.nan, dtype=np.float, order='C'):
+def masked_all(shape, fill_value=np.nan, dtype=float, order='C'):
     """
     Create a masked array where all elements start masked.
 
@@ -89,7 +89,7 @@ def masked_all(shape, fill_value=np.nan, dtype=np.float, order='C'):
     """
     m = np.full(shape, fill_value=fill_value, dtype=dtype, order=order)
     m = ma.masked_array(m)
-    m.mask = np.ones_like(m, dtype=np.bool)
+    m.mask = np.ones_like(m, dtype=bool)
     return m
 
 
@@ -108,7 +108,7 @@ def pad_masked(m, *args, **kwargs):
     """
     if ma.any(np.isnan(m)):
         raise ValueError('m contains unmasked NaNs, it will not work with pad_masked')
-    elif not np.issubdtype(m.dtype, np.float):
+    elif not np.issubdtype(m.dtype, float):
         raise NotImplementedError('Not set up to handle non-float arrays')
 
     # I want to use NaN because I'm afraid of how fill values will interact with some of the methods of extending
@@ -148,7 +148,7 @@ def mask_from_criteria(*criteria):
     # If any of these are masked arrays, convert to numpy arrays first because a bit-wise OR is not
     # allowed to work with masked arrays. We'll assume that if an element is masked in the criterion,
     # it should be masked in the final mask.
-    mask = np.zeros(expected_shape, dtype=np.bool)
+    mask = np.zeros(expected_shape, dtype=bool)
     for crit in criteria:
         if isinstance(crit, ma.masked_array):
             crit = crit.filled(True)

@@ -259,8 +259,8 @@ def plot_error_bar(ax, x, y, error, upper_error=None, direction='y', error_type=
     else:
         raise NotImplementedError('Organizing the input coords in the right x/y dims not configured for direction = {}'.format(direction))
 
-    plot_error_i = np.full((i_coords.size, 3), np.nan, dtype=np.float)
-    plot_error_j = np.stack( (j_coords, j_coords, np.full((j_coords.size,), np.nan, dtype=np.float)), axis=1 )
+    plot_error_i = np.full((i_coords.size, 3), np.nan, dtype=float)
+    plot_error_j = np.stack( (j_coords, j_coords, np.full((j_coords.size,), np.nan, dtype=float)), axis=1 )
 
     # Make the coordinates for the error bars a 3 column array: first column is for the lower end, second for the upper
     # end, and third column will always be NaNs so that the lines are technically one line object but appear separate.
@@ -926,7 +926,7 @@ def heatmap(x, y, xbins=10, ybins=10, plotfxn=plt.pcolormesh, zero_white=True, l
     :return: all return values from the plotting function.
     """
     counts, xbins, ybins = hist2d(x=x, y=y, xbins=xbins, ybins=ybins)
-    counts = counts.astype(np.float)
+    counts = counts.astype(float)
     if zero_white:
         counts[np.isclose(counts, 0)] = np.nan
     if log:

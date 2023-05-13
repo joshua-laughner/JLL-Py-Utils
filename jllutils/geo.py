@@ -111,8 +111,8 @@ class MapGrid(object):
         else:
             return_scalar = False
 
-        x_inds = np.zeros_like(lon, dtype=np.int)
-        y_inds = np.zeros_like(lat, dtype=np.int)
+        x_inds = np.zeros_like(lon, dtype=int)
+        y_inds = np.zeros_like(lat, dtype=int)
 
         lon_edges, lat_edges = self.make_grid(edges=True)
 

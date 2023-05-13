@@ -415,12 +415,12 @@ def date_mean(datetimes, axis=None, reduce_to_scalar=True):
     :rtype: :class:`datetime.datetime` or list or array of such
     """
     if isinstance(datetimes, np.ndarray):
-        timestamps = np.zeros(datetimes.shape, dtype=np.float)
+        timestamps = np.zeros(datetimes.shape, dtype=float)
 
         for idx, val in np.ndenumerate(datetimes):
             timestamps[idx] = val.timestamp()
         timestamps = np.mean(timestamps, axis=axis)
-        result = np.empty_like(timestamps, dtype=np.object)
+        result = np.empty_like(timestamps, dtype=object)
         for idx, val in np.ndenumerate(timestamps):
             result[idx] = base_datetime.datetime.fromtimestamp(val)
 
