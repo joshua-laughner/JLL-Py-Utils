@@ -1140,14 +1140,7 @@ def label_subplots(axs, fmt='({})', seq='lower', xpos=-0.1, ypos=0.95, style={'w
     # Calculate the position for the text to be by default near the top outside left of the axes
     handles = np.full(n_ax, None)
     for i, (ax, label) in enumerate(zip(axs, seq)):
-        x1, x2 = ax.get_xlim()
-        dx = x2 - x1
-        x = x1 + xpos * dx
-        y1, y2 = ax.get_ylim()
-        dy = y2 - y1
-        y = y1 + ypos * dy
-
-        handles[i] = ax.text(x, y, fmt.format(label), ha='right', **style)
+        handles[i] = ax.text(xpos, ypos, fmt.format(label), ha='right', transform=ax.transAxes, **style)
 
     if orig_shape is None:
         handles = handles.item()
