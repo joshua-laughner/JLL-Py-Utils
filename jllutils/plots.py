@@ -173,6 +173,33 @@ def create_twin_axes_with_color(twin='x', color2=None, color1=None, ax=None):
     return fig, ax1, ax2
 
 
+def quick_axes(figsize=None, projection=None):
+    """Make a single axes with a given size and map projection.
+
+    Parameters
+    ----------
+    figsize
+        Size of the figure (width, height) to make.
+
+    projection
+        Projection to use for the figure, usually something from :mod:`cartopy.crs`.
+        If not given, then the projection will be a standard 2D plot.
+
+    Returns
+    -------
+    ax
+        Handle to the axes created
+    """
+    if figsize is None:
+        figsize = plt.rcParams['figure.figsize']
+
+    fig = plt.figure(figsize=figsize)
+    if projection:
+        return fig.add_subplot(1, 1, 1, projection=projection)
+    else:
+        return fig.add_subplot()
+
+
 def plot_xy_error_bars(ax, x, x_error, y, y_error, **style):
     """
     Convenience method to plot x and y error simultaneously.

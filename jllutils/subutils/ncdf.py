@@ -1153,7 +1153,7 @@ def _find_dim_in_group_or_parents(grp, dimname):
         if dimname in grp.dimensions:
             return grp.dimensions[dimname]
 
-    return KeyError('No dimension named "{name}" found in this group or any parent'.format(dimname))
+    return KeyError('No dimension named "{name}" found in this group or any parent'.format(name=dimname))
 
 
 def read_opendap_url(url: str, variables: dict, date: Optional[dt.datetime] = None, host='urs.earthdata.nasa.gov', 
