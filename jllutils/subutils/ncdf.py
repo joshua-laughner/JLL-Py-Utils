@@ -1156,7 +1156,7 @@ def _find_dim_in_group_or_parents(grp, dimname):
     return KeyError('No dimension named "{name}" found in this group or any parent'.format(dimname))
 
 
-def read_opendap_url(url: str, variables: dict, date: Optional[dt.datetime] = None, host='urs.earthdata.nasa.gov'):
+def read_opendap_url(url: str, variables: dict, date: Optional[dt.datetime] = None, host='urs.earthdata.nasa.gov', keep_as_xarray: bool = False):
     """Read data from an OpenDAP URL
 
     Parameters
@@ -1201,6 +1201,9 @@ def read_opendap_url(url: str, variables: dict, date: Optional[dt.datetime] = No
     with xr.open_dataset(xr_store) as ds:
         data = dict()
         for key, variable in variables.items():
-            data[key] = ds[variable].data
+            if keep_as_xarray:
+                data[key] = ds[variable]
+            else:
+                data[key] = ds[variable].data
 
     return data
