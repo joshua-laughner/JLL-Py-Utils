@@ -9,8 +9,6 @@ import numpy as np
 import pandas as pd
 import string
 
-from .stats import hist2d, PolyFitModel
-
 
 class IncompatibleOptions(Exception):
     """
@@ -925,6 +923,11 @@ def heatmap(x, y, xbins=10, ybins=10, plotfxn=plt.pcolormesh, zero_white=True, l
 
     :return: all return values from the plotting function.
     """
+    try:
+        from .stats import hist2d
+    except ImportError:
+        raise ImportError('Could not import stats module, required for heatmap plot')
+    
     counts, xbins, ybins = hist2d(x=x, y=y, xbins=xbins, ybins=ybins)
     counts = counts.astype(np.float)
     if zero_white:
@@ -1206,6 +1209,12 @@ def hexbin_plus_mean(x, y, mean_xbins, ax=None, hexbin_kwargs=dict(), include_fi
         The fit of the binned mean values. Will be `None` if no fit was done,
         either due to an error or `include_fit = False`.
     """
+    if include_fit is True or include_fit is None:
+        try:
+            from .stats import PolyFitModel
+        except ImportError:
+            raise ImportError('Could not import stats module, needed to add fit in hexbin_plus_mean')
+        
     ymeans = y.groupby(pd.cut(x, mean_xbins)).mean().to_numpy()
     bin_centers = 0.5*(mean_xbins[:-1] + mean_xbins[1:])
 
