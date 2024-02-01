@@ -557,14 +557,14 @@ def find(a, axis=None, pos='all'):
     else:
         shape_arr = np.ones_like(a.shape)
         shape_arr[axis] = -1
-        indices = np.arange(a.shape[axis], dtype=np.float).reshape(shape_arr)
+        indices = np.arange(a.shape[axis], dtype=float).reshape(shape_arr)
         indices = np.broadcast_to(indices, a.shape).copy()
         indices[~a] = np.nan
 
         if pos == 'last':
-            return np.nanargmax(indices, axis=axis).astype(np.int)
+            return np.nanargmax(indices, axis=axis).astype(int)
         elif pos == 'first':
-            return np.nanargmin(indices, axis=axis).astype(np.int)
+            return np.nanargmin(indices, axis=axis).astype(int)
         elif pos == 'all':
             raise NotImplementedError('No behavior implemented for pos = "all" along a specific axis')
         else:

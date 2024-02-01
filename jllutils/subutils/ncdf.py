@@ -1153,10 +1153,11 @@ def _find_dim_in_group_or_parents(grp, dimname):
         if dimname in grp.dimensions:
             return grp.dimensions[dimname]
 
-    return KeyError('No dimension named "{name}" found in this group or any parent'.format(dimname))
+    return KeyError('No dimension named "{name}" found in this group or any parent'.format(name=dimname))
 
 
-def read_opendap_url(url: str, variables: dict, date: Optional[dt.datetime] = None, host='urs.earthdata.nasa.gov', keep_as_xarray: bool = False):
+def read_opendap_url(url: str, variables: dict, date: Optional[dt.datetime] = None, host='urs.earthdata.nasa.gov', 
+                     isel_subset: Optional[dict] = None, sel_subset: Optional[dict] = None, keep_as_xarray: bool = True):
     """Read data from an OpenDAP URL
 
     Parameters
@@ -1176,7 +1177,19 @@ def read_opendap_url(url: str, variables: dict, date: Optional[dt.datetime] = No
         The date to download; may be omitted if that is already included in the URL (i.e. the URL has no ``{date}`` format elements.)
 
     host
-        The host name in your ~/.netrc file to use credentials from to login.
+        The host name in your ~/.netrc file to use credentials from to login. Set to ``None`` if login is not required.
+
+    isel_subset
+        A dictionary giving dimension names as keys and slices as value to select a subset of data to download. The slices will use
+        positional indexing. Only dimensions in a variable are used for slicing that variable. Note that this is mutually exclusive
+        with ``sel_subset``.
+
+    sel_subset
+        Similar to ``isel_subset``, except using ``xarray``'s ``sel`` selector rather than ``isel``, and so slicing by value rather than
+        index.
+
+    keep_as_xarray
+        Set to ``False`` to convert arrays to simple Numpy arrays before returning.
 
     Returns
     -------
@@ -1190,20 +1203,33 @@ def read_opendap_url(url: str, variables: dict, date: Optional[dt.datetime] = No
     else:
         print(f'Downloading data from {url}')
 
+    if isel_subset is not None and sel_subset is not None:
+        raise TypeError('Cannot give both isel_subset and sel_subset')
+
     if not isinstance(variables, dict):
         variables = {k: k for k in variables}
         
-    user, _, password = netrc().hosts[host]
-    session = setup_session(user, password, check_url=url)
-    pydap_ds = open_url(url, session=session)
+    if host:
+        user, _, password = netrc().hosts[host]
+        session = setup_session(user, password, check_url=url)
+        pydap_ds = open_url(url, session=session)
+    else:
+        pydap_ds = open_url(url)
     
     xr_store = xr.backends.PydapDataStore(pydap_ds)
     with xr.open_dataset(xr_store) as ds:
         data = dict()
         for key, variable in variables.items():
-            if keep_as_xarray:
-                data[key] = ds[variable]
+            if isel_subset is not None:
+                this_subset = {k: v for k, v in isel_subset.items() if k in ds[variable].dims}
+                data[key] = ds[variable].isel(**this_subset)
+            elif sel_subset is not None:
+                this_subset = {k: v for k, v in sel_subset.items() if k in ds[variable].dims}
+                data[key] = ds[variable].sel(**this_subset)
             else:
-                data[key] = ds[variable].data
+                data[key] = ds[variable]
+
+            if not keep_as_xarray:
+                data[key] = data[key].data
 
     return data

@@ -480,7 +480,7 @@ class PolyFitModel(object):
             return None
         if not isinstance(input, np.ndarray) or input.ndim != 1:
             raise TypeError('{} must be a 1D numpy array'.format(name))
-        return input.astype(np.float)
+        return input.astype(float)
 
     def _check_coeff_type(self, coeff):
         """Check that arrays of coefficients returned from the fitting functions are the right type
@@ -503,7 +503,7 @@ class PolyFitModel(object):
         """
         if not isinstance(coeff, np.ndarray):
             try:
-                coeff = np.array(coeff, dtype=np.float)
+                coeff = np.array(coeff, dtype=float)
             except Exception:
                 raise TypeError('Problem with fitting model ({}): could not convert output to numpy array'.format(
                     self._fit_fxn.__name__
@@ -514,7 +514,7 @@ class PolyFitModel(object):
                 self._fit_fxn.__name__
             ))
 
-        return coeff.astype(np.float)
+        return coeff.astype(float)
 
     @classmethod
     def _get_fit_fxn(cls, model):
@@ -709,7 +709,7 @@ class RunningMean(object):
         """
         return self._sum / self._weights
 
-    def __init__(self, shape, dtype=np.float):
+    def __init__(self, shape, dtype=float):
         """
         Parameters
         ----------
@@ -788,7 +788,7 @@ class RunningStdDev(object):
         else:
             return np.sqrt(self._m2 / (self._count - 1))
 
-    def __init__(self, shape, dtype=np.float):
+    def __init__(self, shape, dtype=float):
         """
         Parameters
         ----------
@@ -853,7 +853,7 @@ class RunningMeanAndStd(object):
         """
         return self._mean.result, self._std.result
 
-    def __init__(self, shape, dtype=np.float):
+    def __init__(self, shape, dtype=float):
         self._mean = RunningMean(shape, dtype=dtype)
         self._std = RunningStdDev(shape, dtype=dtype)
 
@@ -1513,7 +1513,7 @@ def hist2d(x, y, xbins=10, ybins=10):
     nx = np.size(xbins) - 1
     ny = np.size(ybins) - 1
 
-    counts = np.zeros([nx, ny], dtype=np.int)
+    counts = np.zeros([nx, ny], dtype=int)
     for i in range(nx):
         xx = (x >= xbins[i]) & (x < xbins[i+1])
         for j in range(ny):
