@@ -6,13 +6,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 from numpy import ma
 import pandas as pd
-import random
 import re
 import scipy.stats as st
 from statsmodels import api as sm, tools as smtools
 from statsmodels.robust.robust_linear_model import RLM
 from statsmodels.robust.norms import TukeyBiweight
 
+from typing import Optional, Tuple
 
 class BootstrapError(Exception):
     pass
@@ -694,6 +694,92 @@ class PolyFitModel(object):
         if freeze_xlims:
             ax.set_xlim(x)
         return h
+
+
+class BootstrapModelFit:
+    """A version of :class:`PolyFitModel` that uses bootstrapping to estimate uncertainties of fits
+    """
+    def __init__(self, x: np.ndarray, y: np.ndarray, model: str = 'robust', n_iter: int = 1000, seed: Optional[int] = None):
+        """
+        Parameters
+        ----------
+        x
+            The independent variable. Values that are NaN in ``x`` or ``y`` are removed.
+
+        y
+            The dependent variable. Values that are NaN in ``x`` or ``y`` are removed.
+        
+        model
+            Which model of :class:`PolyFitModel` to use. "york" is not supported.
+
+        n_iter:
+            How many bootstrap iterations to do. Currently the bootstrapping is always done
+            with replacement and takes as many samples as x & y have non-nan values.
+
+        seed
+            Seed for the random number generator used in bootstrapping. If given, the seed is advanced
+            by 1 for each iteration.
+        """
+        is_nan = np.isnan(x) | np.isnan(y)
+        x = x[~is_nan]
+        y = y[~is_nan]
+        
+        fit0 = PolyFitModel(x, y, model=model)
+        slopes = np.full(n_iter, np.nan)
+        intercepts = np.full(n_iter, np.nan)
+        
+        xy = np.vstack([x, y]).T
+        for i in range(n_iter):
+            xyboot = bootstrap_sample(xy, xy.shape[0], with_replacement=True, seed=seed)
+            fit_boot = PolyFitModel(xyboot[:,0], xyboot[:,1], model=model)
+            slopes[i] = fit_boot.slope
+            intercepts[i] = fit_boot.yint
+            if seed is not None:
+                seed += 1
+            
+        self.slope = fit0.slope
+        self.bootstrap_slopes = slopes
+        self.slope_unc = np.std(slopes, ddof=1)
+        self.intercept = fit0.yint
+        self.bootstrap_intercepts = intercepts
+        self.intercept_unc = np.std(intercepts, ddof=1)
+        
+    def plot_fit(self, ax=None, xlim: Optional[Tuple[float,float]] = None, line_kws: Optional[dict] = None, patch_kws: Optional[dict] = None):
+        """Plot the fit and its uncertainty.
+
+        The uncertainty is plotted by calculating a line for each bootstrapped slope and intercept,
+        then sampling the standard deviation of those lines at a number of points along the domain
+        of the axes and adding/subtracting that standard deviation to the best fit line at each
+        point.
+
+        Parameters
+        ----------
+        ax
+            Axes to plot into
+        
+        """
+        line_kws = line_kws or dict()
+        patch_kws = patch_kws or dict()
+        
+        ax = ax or plt.gca()
+        xlim = np.asarray(xlim) if xlim is not None else np.asarray(ax.get_xlim())
+        ax.set_xlim(xlim)
+        
+        xpts = np.linspace(xlim[0], xlim[1]).reshape(1, -1)
+        ypts = xpts.squeeze() * self.slope + self.intercept
+        lines = xpts * self.bootstrap_slopes[:, np.newaxis] + self.bootstrap_intercepts[:, np.newaxis]
+        line_std = np.std(lines, axis=0, ddof=1)
+        lower = ypts - line_std
+        upper = ypts + line_std
+        
+        line_kws.setdefault('ls', '--')
+        line_kws.setdefault('color', 'gray')
+        line_kws.setdefault('label', f'y = ({self.slope:.4g} $\\pm$ {self.slope_unc:.4g})x + {self.intercept:.4g} $\\pm$ {self.intercept_unc:.4g}')
+        patch_kws.setdefault('color', 'lightgray')
+        patch_kws.setdefault('alpha', 0.5)
+        
+        ax.plot(xlim, xlim*self.slope + self.intercept, **line_kws)
+        ax.fill_between(xpts.squeeze(), lower, upper, **patch_kws)
 
 
 class RunningMean(object):
