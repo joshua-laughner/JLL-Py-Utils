@@ -3,6 +3,7 @@ Utilities that don't fit any other well defined category
 """
 from abc import ABCMeta, abstractmethod
 from contextlib import contextmanager
+import fnmatch
 import logging
 from typing import Optional, Union
 
@@ -496,6 +497,55 @@ class LinkFile(_File):
         return my_stat.st_ino + 2**64 * my_stat.st_dev
 
 
+def find_files(path: str, name: Optional[str] = None, iname: Optional[str] = None, xtype: Optional[str] = None):
+    """Find files and directories in a tree, similar to the unix ``find`` program.
+
+    Note that a small subset of the filters from ``find`` are available.
+
+    Parameters
+    ----------
+    path
+        Path under which to search.
+
+    name
+        Glob-style pattern to match against file base names (case sensitive).
+
+    iname
+        Glob-style pattern to match against file base names (case insensitive).
+
+    xtype
+        Which type a path is: "d" for directory, "f" for regular file (not link),
+        "l" for symbolic link. Note that ``type`` is not an option because that is
+        a Python keyword.
+
+    Returns
+    -------
+    files
+        A list of files matching all of the criteria. If no criteria were given, all
+        files and directories under ``path`` are returned.
+    """
+    matched_files = []
+    for root, dirs, files in os.walk(path):
+        to_check = [(d, True) for d in dirs]
+        to_check.extend((f, False) for f in files)
+        for this_path, is_dir in to_check:
+            if name and not fnmatch.fnmatchcase(this_path, name):
+                continue
+            if iname and not fnmatch.fnmatch(this_path, iname):
+                continue
+            if xtype:
+                is_link = os.path.islink(os.path.join(root, this_path))
+                if xtype == 'd' and not is_dir:
+                    continue
+                elif xtype == 'f' and is_dir and is_link:
+                    continue
+                elif xtype == 'l' and not is_dir and not is_link:
+                    continue
+                
+            matched_files.append(os.path.join(root, this_path))
+    return matched_files
+
+
 def all_or_none(val):
     """Return ``True`` if all or no values in the input are truthy
 
@@ -513,7 +563,7 @@ def all_or_none(val):
     return s == 0 or s == len(val)
 
 
-def find(a, axis=None, pos='all'):
+def find_where(a, axis=None, pos='all'):
     """Find indices where an array has a truth-like value.
 
     This function provides a different way of getting indices where ``a`` is truthy than :func:`numpy.argwhere` or
