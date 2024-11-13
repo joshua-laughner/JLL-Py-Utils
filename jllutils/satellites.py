@@ -1,9 +1,83 @@
 import h5py
+from matplotlib.collections import PatchCollection
+from matplotlib.patches import Polygon
+import matplotlib.pyplot as plt
+import numpy as np
 import os
 
 from .subutils.ncdf import NcWrapper
-from .subutils.sat_filters import SatelliteFilter
-from .subutils import sat_filters as filters
+
+
+def plot_pixel_polygons(loncorn: np.ndarray, latcorn: np.ndarray, values: np.ndarray, ax=None, **collection_kws) -> PatchCollection:
+    """Plot satellite pixels as polygons.
+
+    Parameters
+    ----------
+    loncorn, latcorn 
+        The longitude and latitude corners of the pixels. Must be 2D arrays, the first dimension must be the number
+        of pixels and the second dimension the number of corners. Any number of corners >= 3 are allowed, but the number
+        of corners must be the same in both arrays. If your axes use a map projection other than PlateCarree or equirectangular,
+        then the safest approach is to transform these coordinates into the map projection yourself.
+
+    values
+        The values to color the pixels by. Must be a 1D array with the same number of elements as the first dimensions
+        of loncorn and latcorn.
+
+    ax
+        Which axes to plot into. If not given, the axes returned by ``plt.gca()`` are used.
+
+    collection_kws
+        Additional keywords are passed through to :func:`matplotlib.collections.PatchCollection`. Most commonly used ones are:
+
+        - ``alpha``: set transparency (0 to 1)
+        - ``clim``: set colorbar limits as ``(vmin, vmax)``
+        - ``cmap``: set the color map
+        - ``edgecolor``, ``edgecolors``, or ``ec``: set the pixel edge color
+        - ``label``: set the legend label
+        - ``linestyle``, ``linestyles`` or ``ls``: set the edge line style
+        - ``linewidth``, ``linewidths``, or ``lw``: set the edge line width
+        - ``norm``: set the colorbar normalization
+        - ``transform``: set which coordiate system to interpret the lat/lon values in. For maps in non-equirectangular projections,
+          setting this to ``cartopy.crs.PlateCarree()`` might work to transform the pixels into the new projection (not tested).
+        - ``zorder``: set where the pixels are rendered in the stack relative to other elements.
+
+    Returns
+    -------
+    patch_col
+        The patch collection; this can be used as the first argument to ``plt.colorbar``.
+    """
+    shape_lon = np.shape(loncorn)
+    shape_lat = np.shape(latcorn)
+    shape_values = np.shape(values)
+    if shape_lon != shape_lat:
+        raise ValueError(f'loncorn and latcorn must be the same shape, got {shape_lon} and {shape_lat}')
+    if shape_lon[0] != shape_values[0]:
+        raise ValueError(f'loncorn, latcorn, and values must have the same length in the first dimension, but got {shape_lon[0]}, {shape_lat[0]}, and {shape_values[0]}')
+    if np.ndim(values) != 1:
+        raise ValueError(f'values must be 1D, got {np.ndim(values)}D')
+    
+    pixels = []
+    for xc, yc in zip(loncorn, latcorn):
+        coords = np.vstack([xc, yc]).T
+        pixels.append(Polygon(coords, closed=True))
+        
+    ax = ax or plt.gca()
+    collection_kws.setdefault('in_layout', True)  # try to make sure this gets included in layout calculations
+    p = PatchCollection(pixels, **collection_kws)
+    p.set_array(values)
+    ax.add_collection(p)
+    
+    # For whatever reason, adding a collection does not update the axis
+    # limits, so we do that manually.
+    if ax.get_autoscalex_on():
+        xmin = np.nanmin(loncorn)
+        xmax = np.nanmax(loncorn)
+        ax.set_xbound(xmin, xmax)
+    if ax.get_autoscaley_on():
+        ymin = np.nanmin(latcorn)
+        ymax = np.nanmax(latcorn)
+        ax.set_ybound(ymin, ymax)
+    return p
 
 
 class SatelliteData(object):

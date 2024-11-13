@@ -171,6 +171,33 @@ def create_twin_axes_with_color(twin='x', color2=None, color1=None, ax=None):
     return fig, ax1, ax2
 
 
+def quick_axes(figsize=None, projection=None):
+    """Make a single axes with a given size and map projection.
+
+    Parameters
+    ----------
+    figsize
+        Size of the figure (width, height) to make.
+
+    projection
+        Projection to use for the figure, usually something from :mod:`cartopy.crs`.
+        If not given, then the projection will be a standard 2D plot.
+
+    Returns
+    -------
+    ax
+        Handle to the axes created
+    """
+    if figsize is None:
+        figsize = plt.rcParams['figure.figsize']
+
+    fig = plt.figure(figsize=figsize)
+    if projection:
+        return fig.add_subplot(1, 1, 1, projection=projection)
+    else:
+        return fig.add_subplot()
+
+
 def plot_xy_error_bars(ax, x, x_error, y, y_error, **style):
     """
     Convenience method to plot x and y error simultaneously.
@@ -376,7 +403,8 @@ def bars(ax, x, height, width=None, relwidth=0.8, color=None, **kwargs):
     return handles
 
 
-def histnorm(a, bins=10, range=None, cumulative=False, histtype='bar', normtype='number', orientation='vertical', scale=1, log=False, color=None, linewidth=None, lw=None, label='', ax=None):
+def histnorm(a, bins=10, range=None, cumulative=False, histtype='bar', normtype='number', orientation='vertical', scale=1, log=False,
+             color=None, alpha=1.0, linewidth=None, lw=None, linestyle='-', ls=None, label='', ax=None):
     """An alternative histogram plot that allows different methods of normalizing the bars beyond the density option in `matplotlib`'s `hist` function
 
     Parameters
@@ -416,8 +444,14 @@ def histnorm(a, bins=10, range=None, cumulative=False, histtype='bar', normtype=
     color
         Color to use for the bars or step lines.
 
+    alpha
+        Transparency for the bars.
+
     linewidth / lw
-        Width to use for the step lines; only one of these can be given.
+        Width to use for the step lines or box patches; only one of these can be given.
+
+    linestyle / ls
+        Style to use for the step lines; only one of these can be given.
 
     label
         Label to use for the legend.
@@ -442,6 +476,12 @@ def histnorm(a, bins=10, range=None, cumulative=False, histtype='bar', normtype=
         raise TypeError('Cannot pass both `lw` and `linewidth`')
     if lw is not None:
         linewidth = lw
+        
+    if ls is not None and linestyle is not None:
+        raise TypeError('Cannot pass both `ls` and `linestyle`')
+    if ls is not None:
+        linestyle = ls
+        
     if isinstance(scale, str) and scale == '%':
         scale = 100
 
@@ -476,13 +516,13 @@ def histnorm(a, bins=10, range=None, cumulative=False, histtype='bar', normtype=
         patches = []
         if orientation == 'vertical':
             for height, left, right in zip(n, bin_edges[:-1], bin_edges[1:]):
-                rect = Rectangle((left, 0), right - left, height, color=color, label=label)
+                rect = Rectangle((left, 0), right - left, height, color=color, label=label, linewidth=linewidth, alpha=alpha)
                 label = ''
                 ax.add_patch(rect)
                 patches.append(rect)
         elif orientation == 'horizontal':
             for width, bottom, top in zip(n, bin_edges[:-1], bin_edges[1:]):
-                rect = Rectangle((0, bottom), width, top - bottom, color=color, label=label)
+                rect = Rectangle((0, bottom), width, top - bottom, color=color, label=label, linewidth=linewidth, alpha=alpha)
                 label = ''
                 ax.add_patch(rect)
                 patches.append(rect)
@@ -503,7 +543,7 @@ def histnorm(a, bins=10, range=None, cumulative=False, histtype='bar', normtype=
         if orientation == 'horizontal':
             points = np.flip(points, axis=1)
 
-        poly = Polygon(points, edgecolor=color, facecolor=None, fill=False, linewidth=linewidth, label=label, closed=False)
+        poly = Polygon(points, edgecolor=color, facecolor=None, fill=False, linewidth=linewidth, linestyle=linestyle, label=label, closed=False)
         ax.add_patch(poly)
         handles = [poly]
 

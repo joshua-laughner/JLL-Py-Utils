@@ -135,30 +135,3 @@ class MapGrid(object):
             return x_inds.item(), y_inds.item()
         else:
             return x_inds, y_inds
-
-
-def great_circle_dist(lon1, lat1, lon2, lat2):
-    """
-    Calculate the great circle distance between two lat/lons, in kilometers
-
-    :param lon1, lat1: the longitude and latitude of the first point (degrees)
-    :type lon1, lat1: float or array-like
-
-    :param lon2, lat2: the longitude and latitude of the second point (degrees)
-    :type lon2, lat2: float or array-like
-
-    :return: the great circle distance in kilometers
-    """
-    # https://www.pythonprogramming.in/calculate-distance-between-two-points-on-earth.html
-    lon1 = np.radians(lon1)
-    lat1 = np.radians(lat1)
-    lon2 = np.radians(lon2)
-    lat2 = np.radians(lat2)
-
-    dlon = lon2 - lon1
-    dlat = lat2 - lat1
-    a = np.sin(dlat / 2) ** 2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2) ** 2
-    c = 2 * np.arcsin(np.sqrt(a))
-    r = 6371
-
-    return c*r
