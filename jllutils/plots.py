@@ -10,8 +10,6 @@ import pandas as pd
 import re
 import string
 
-from .stats import hist2d, PolyFitModel
-
 from typing import Optional, Dict, Any
 
 class IncompatibleOptions(Exception):
@@ -78,7 +76,7 @@ class Subplots(object):
         sizex, sizey = figsize
         if nx is None and ny is None:
             nx = 2
-        
+
         if ny is None:
             ny = self._calc_second_dim(nx, nplots)
         elif nx is None:
@@ -94,7 +92,7 @@ class Subplots(object):
         self.iplot = 0
         self.axes = np.full([self.ny, self.nx], None)
         self.subplot_kw = dict() if subplot_kw is None else subplot_kw
-    
+
     def next_subplot(self):
         """Create the next subplot and return the handle to it
 
@@ -118,8 +116,8 @@ class Subplots(object):
             plt.setp(ax.get_xticklabels(), visible=False)
         if self.sharey and ind_x != 0:
             plt.setp(ax.get_yticklabels(), visible=False)
-        
-        
+
+
         self.axes[ind_y, ind_x] = ax
         return ax
 
@@ -407,7 +405,8 @@ def bars(ax, x, height, width=None, relwidth=0.8, color=None, **kwargs):
     return handles
 
 
-def histnorm(a, bins=10, range=None, cumulative=False, histtype='bar', normtype='number', orientation='vertical', scale=1, log=False, color=None, linewidth=None, lw=None, label='', ax=None):
+def histnorm(a, bins=10, range=None, cumulative=False, histtype='bar', normtype='number', orientation='vertical', scale=1, log=False,
+             color=None, alpha=1.0, linewidth=None, lw=None, linestyle='-', ls=None, label='', ax=None):
     """An alternative histogram plot that allows different methods of normalizing the bars beyond the density option in `matplotlib`'s `hist` function
 
     Parameters
@@ -447,8 +446,14 @@ def histnorm(a, bins=10, range=None, cumulative=False, histtype='bar', normtype=
     color
         Color to use for the bars or step lines.
 
+    alpha
+        Transparency for the bars.
+
     linewidth / lw
-        Width to use for the step lines; only one of these can be given.
+        Width to use for the step lines or box patches; only one of these can be given.
+
+    linestyle / ls
+        Style to use for the step lines; only one of these can be given.
 
     label
         Label to use for the legend.
@@ -473,6 +478,12 @@ def histnorm(a, bins=10, range=None, cumulative=False, histtype='bar', normtype=
         raise TypeError('Cannot pass both `lw` and `linewidth`')
     if lw is not None:
         linewidth = lw
+
+    if ls is not None and linestyle is not None:
+        raise TypeError('Cannot pass both `ls` and `linestyle`')
+    if ls is not None:
+        linestyle = ls
+
     if isinstance(scale, str) and scale == '%':
         scale = 100
 
@@ -507,13 +518,13 @@ def histnorm(a, bins=10, range=None, cumulative=False, histtype='bar', normtype=
         patches = []
         if orientation == 'vertical':
             for height, left, right in zip(n, bin_edges[:-1], bin_edges[1:]):
-                rect = Rectangle((left, 0), right - left, height, color=color, label=label)
+                rect = Rectangle((left, 0), right - left, height, color=color, label=label, linewidth=linewidth, alpha=alpha)
                 label = ''
                 ax.add_patch(rect)
                 patches.append(rect)
         elif orientation == 'horizontal':
             for width, bottom, top in zip(n, bin_edges[:-1], bin_edges[1:]):
-                rect = Rectangle((0, bottom), width, top - bottom, color=color, label=label)
+                rect = Rectangle((0, bottom), width, top - bottom, color=color, label=label, linewidth=linewidth, alpha=alpha)
                 label = ''
                 ax.add_patch(rect)
                 patches.append(rect)
@@ -534,7 +545,7 @@ def histnorm(a, bins=10, range=None, cumulative=False, histtype='bar', normtype=
         if orientation == 'horizontal':
             points = np.flip(points, axis=1)
 
-        poly = Polygon(points, edgecolor=color, facecolor=None, fill=False, linewidth=linewidth, label=label, closed=False)
+        poly = Polygon(points, edgecolor=color, facecolor=None, fill=False, linewidth=linewidth, linestyle=linestyle, label=label, closed=False)
         ax.add_patch(poly)
         handles = [poly]
 
@@ -954,6 +965,11 @@ def heatmap(x, y, xbins=10, ybins=10, plotfxn=plt.pcolormesh, zero_white=True, l
 
     :return: all return values from the plotting function.
     """
+    try:
+        from .stats import hist2d
+    except ImportError:
+        raise ImportError('Could not import stats module, required for heatmap plot')
+
     counts, xbins, ybins = hist2d(x=x, y=y, xbins=xbins, ybins=ybins)
     counts = counts.astype(float)
     if zero_white:
@@ -1228,6 +1244,12 @@ def hexbin_plus_mean(x, y, mean_xbins, ax=None, hexbin_kwargs=dict(), include_fi
         The fit of the binned mean values. Will be `None` if no fit was done,
         either due to an error or `include_fit = False`.
     """
+    if include_fit is True or include_fit is None:
+        try:
+            from .stats import PolyFitModel
+        except ImportError:
+            raise ImportError('Could not import stats module, needed to add fit in hexbin_plus_mean')
+
     ymeans = y.groupby(pd.cut(x, mean_xbins)).mean().to_numpy()
     bin_centers = 0.5*(mean_xbins[:-1] + mean_xbins[1:])
 
@@ -1310,20 +1332,20 @@ def envelope_ensemble_plot(x, y, env_axis: int = 0, env_type: str = '1sigma', li
         x_lower, x_bar, x_upper, env_label = _apply_env_type(x, env_type=env_type, env_axis=env_axis, line_op=line_op)
     else:
         raise ValueError(f'Invalid direction "{direction}", allowed values are "x" or "y"')
-        
+
     line_kws = line_kws or dict()
     if 'label' in line_kws:
         line_kws['label'] = line_kws['label'].format(op=line_op)
     else:
         line_kws['label'] = line_op
-        
+
     env_kws = env_kws or dict()
     env_kws.setdefault('alpha', 0.5)
     if 'label' in env_kws:
         env_kws['label'] = env_kws['label'].format(env=env_label)
     else:
         env_kws['label'] = env_label
-    
+
     ax = ax or plt.gca()
     if direction == 'y':
         ax.plot(x, y_bar, **line_kws)
@@ -1350,21 +1372,21 @@ def _apply_env_type(values, env_type, env_axis, line_op):
         p1 = float(mp.group(1))
         p2 = float(mp.group(2))
         lower = np.nanpercentile(values, p1, axis=env_axis)
-        
+
         upper = np.nanpercentile(values, p2, axis=env_axis)
         label = f'[{p1:.0f}, {p2:.0f}] %ile'
     else:
         raise ValueError(f'Invalid env_type: "{env_type}", permitted patterns are "D+sigma" or "D+p,D+p" where "D+" represents 1 or more digits')
-    
+
     if line_op == 'mean':
         y_bar = np.nanmean(values, axis=env_axis)
     elif line_op == 'median':
         y_bar = np.nanmedian(values, axis=env_axis)
     else:
         raise ValueError(f'Invalid line_op: "{line_op}", permitted values are "mean" and "median"')
-    
+
     if calc_delta:
         lower = y_bar - lower
         upper = y_bar + upper
-        
+
     return lower, y_bar, upper, label

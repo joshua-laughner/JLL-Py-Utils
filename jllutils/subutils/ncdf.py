@@ -1157,7 +1157,7 @@ def _find_dim_in_group_or_parents(grp, dimname):
 
 
 def read_opendap_url(url: str, variables: dict, date: Optional[dt.datetime] = None, host='urs.earthdata.nasa.gov', 
-                     isel_subset: Optional[dict] = None, sel_subset: Optional[dict] = None):
+                     isel_subset: Optional[dict] = None, sel_subset: Optional[dict] = None, keep_as_xarray: bool = True):
     """Read data from an OpenDAP URL
 
     Parameters
@@ -1187,6 +1187,9 @@ def read_opendap_url(url: str, variables: dict, date: Optional[dt.datetime] = No
     sel_subset
         Similar to ``isel_subset``, except using ``xarray``'s ``sel`` selector rather than ``isel``, and so slicing by value rather than
         index.
+
+    keep_as_xarray
+        Set to ``False`` to convert arrays to simple Numpy arrays before returning.
 
     Returns
     -------
@@ -1225,5 +1228,8 @@ def read_opendap_url(url: str, variables: dict, date: Optional[dt.datetime] = No
                 data[key] = ds[variable].sel(**this_subset)
             else:
                 data[key] = ds[variable]
+
+            if not keep_as_xarray:
+                data[key] = data[key].data
 
     return data

@@ -1,3 +1,7 @@
+try:
+    import ephem
+except ImportError:
+    print('pyephem not installed, solar noon functions will not work')
 import matplotlib.pyplot as plt
 import netCDF4 as ncdf
 import numpy as np
@@ -48,30 +52,30 @@ def shapefile_to_csv(shpfile, csvfile, attrs=tuple(), sort_attr=None):
     records = reader.records()
     if sort_attr is not None:
         records = sorted(records, key=lambda r: r.attributes[sort_attr])
-    
+
     with open(csvfile, 'w') as f:
         f.write('lon,lat,polygon_index')
         if attrs:
             f.write(',{}\n'.format(','.join(attrs)))
         else:
             f.write('\n')
-            
+
         curr_poly_index = 0
         for rec in records:
             geo = rec.geometry
             lon, lat, poly_index, curr_poly_index = _get_lat_lon_poly(geo, curr_poly_index)
-                
+
             # Prep the attributes ones, since they'll be the same for every row in this geometry
             if attrs:
                 attr_string = ','.join(rec.attributes[a] for a in attrs)
                 attr_string = ',{}\n'.format(attr_string)
             else:
                 attr_string = '\n'
-                
+
             for x, y, i in zip(lon, lat, poly_index):
                 f.write('{},{},{}{}'.format(x, y, i, attr_string))
-                
-                
+
+
 def shapefile_to_ncdf(shpfile, ncfile, attrs=tuple(), sort_attr=None):
     """Convert a GIS shapefile (``.shp``) to a netCDF 4 file.
 
@@ -117,7 +121,7 @@ def shapefile_to_ncdf(shpfile, ncfile, attrs=tuple(), sort_attr=None):
     records = reader.records()
     if sort_attr is not None:
         records = sorted(records, key=lambda r: r.attributes[sort_attr])
-        
+
     lons = []
     lats = []
     attr_dict = {a: [] for a in attrs}
@@ -135,7 +139,7 @@ def shapefile_to_ncdf(shpfile, ncfile, attrs=tuple(), sort_attr=None):
     lats = np.array(lats, dtype=object)
     for k, v in attr_dict.items():
         attr_dict[k] = np.array(v)
-        
+
     with ncdf.Dataset(ncfile, 'w') as ds:
         ds.createDimension('polygon', np.size(lons))
         vlen_t = ds.createVLType(np.float64, "polygon_vlen")
@@ -143,12 +147,12 @@ def shapefile_to_ncdf(shpfile, ncfile, attrs=tuple(), sort_attr=None):
         lon_var[:] = lons
         lat_var = ds.createVariable('lat', vlen_t, ['polygon'])
         lat_var[:] = lats
-        
+
         for k, v in attr_dict.items():
             attr_var = ds.createVariable(k, v.dtype, ['polygon'])
             attr_var[:] = v
-                
-                
+
+
 def _get_lat_lon_poly(geo, curr_poly_index):
     try:
         import shapely
@@ -180,10 +184,10 @@ def _get_lat_lon_poly(geo, curr_poly_index):
         poly_index = np.concatenate(poly_index)
     else:
         raise NotImplementedError('CSV conversion not implemented for geometry type {}'.format(type(geo)))
-        
+
     return lon, lat, poly_index, curr_poly_index
-                
-                
+
+
 def plot_shapes_from_csv(shpcsv, ax=None, filter_fxn=None, keep_extent=True, **style):
     """Plot geographic shapes from a .csv file created by :func:`shapefile_to_csv`
 
@@ -207,23 +211,23 @@ def plot_shapes_from_csv(shpcsv, ax=None, filter_fxn=None, keep_extent=True, **s
     """
     if ax is None:
         ax = plt.gca()
-        
+
     style.setdefault('color', 'k')
-        
+
     shpdf = pd.read_csv(shpcsv)
     if filter_fxn is not None:
         xx = filter_fxn(shpdf)
         shpdf = shpdf.loc[xx]
 
     extent = ax.get_xlim() + ax.get_ylim()
-        
+
     for _, feature in shpdf.groupby('polygon_index'):
         ax.plot(feature['lon'].to_numpy(), feature['lat'].to_numpy(), **style)
 
     if keep_extent:
         ax.set_extent(extent)
-        
-        
+
+
 def plot_shapes_from_nc(shpnc, ax=None, keep_extent=True, **style):
     """Plot geographic shapes from a netCDF 4 file created by :func:`shapefile_to_ncdf`
 
@@ -243,13 +247,13 @@ def plot_shapes_from_nc(shpnc, ax=None, keep_extent=True, **style):
     """
     if ax is None:
         ax = plt.gca()
-        
+
     style.setdefault('color', 'k')
-        
+
     with ncdf.Dataset(shpnc) as ds:
         lon = ds['lon'][:]
         lat = ds['lat'][:]
-        
+
     extent = ax.get_xlim() + ax.get_ylim()
 
     for x, y in zip(lon, lat):
@@ -261,7 +265,7 @@ def plot_shapes_from_nc(shpnc, ax=None, keep_extent=True, **style):
 
 def great_circle_distance(lon1: np.ndarray, lat1: np.ndarray, lon2: np.ndarray, lat2: np.ndarray, earth_radius: float = 6378.137) -> np.ndarray:
     """Compute the great circle distances between two sets of lat/lons, in kilometers by default
-    
+
     Parameters
     ----------
     lon1, lat1
@@ -295,7 +299,7 @@ def great_circle_distance(lon1: np.ndarray, lat1: np.ndarray, lon2: np.ndarray, 
     lat2 = np.deg2rad(lat2)
     dlon = np.abs(lon2 - lon1)
     dlat = np.abs(lat2 - lat1)
-    
+
     inner = np.sin(dlat/2)**2 + (1 - np.sin(dlat/2)**2 - np.sin((lat1 + lat2)/2)**2) * np.sin(dlon/2)**2
     central_angle = 2 * np.arcsin(np.sqrt(inner))
     return central_angle * earth_radius
@@ -359,3 +363,71 @@ def format_lat(lat: float, fmt: str = '{lat:.2f} {ns}') -> str:
         ns = 'N'
 
     return fmt.format(lat=lat, ns=ns)
+
+
+def get_solar_noon_for_observer(after, observer):
+    """Return solar noon in UTC for the given observer's location
+
+    Parameters
+    ----------
+    after: datetime-like
+        A datetime-like object giving the UTC time after which to find solar noon for.
+
+    observer: ephem.Observer
+        An observer for the location to compute solar noon for.
+
+    Returns
+    -------
+    solar_noon
+        Solar noon as a :class:`datetime.datetime` in UTC.
+    """
+    sun = ephem.Sun()
+    return observer.next_transit(sun, start=ephem.Date(after)).datetime()
+
+
+def get_solar_noon_for_lat_lon(after, lat, lon):
+    """Convenience method to compute solar noon for a given latitude and longitude.
+
+    For repeated calculations of the same location, it is more efficient to use
+    :func:`make_ephem_observer` to construct the observer once and call
+    :func:`get_solar_noon_for_observer` instead.
+
+    Parameters
+    ----------
+    after: datetime-like
+        A datetime-like object giving the UTC time after which to find solar noon for.
+
+    lat: float
+        Latitude for the observer (south is negative).
+
+    lon: float
+        Longitude for the observer (west is negative).
+
+    Returns
+    -------
+    solar_noon
+        Solar noon as a :class:`datetime.datetime` in UTC.
+    """
+    observer = make_ephem_observer(lat, lon)
+    return get_solar_noon_for_observer(after, observer)
+
+
+def make_ephem_observer(lat, lon):
+    """Create a pyephem Observer for a given latitude and longitude.
+
+    Parameters
+    ----------
+    lat: float
+        Latitude for the observer (south is negative).
+
+    lon: float
+        Longitude for the observer (west is negative).
+
+    Returns
+    -------
+    observer: ephem.Observer
+        Observer at the given latitude and longitude.
+    """
+    observer = ephem.Observer()
+    observer.lat, observer.long = '{:.4f}'.format(lat), '{:.4f}'.format(lon)
+    return observer
