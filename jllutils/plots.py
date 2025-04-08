@@ -7,10 +7,12 @@ import matplotlib as mpl
 from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
+import re
 import string
 
 from .stats import hist2d, PolyFitModel
 
+from typing import Optional, Dict, Any
 
 class IncompatibleOptions(Exception):
     """
@@ -1250,3 +1252,119 @@ def hexbin_plus_mean(x, y, mean_xbins, ax=None, hexbin_kwargs=dict(), include_fi
         fit = None
 
     return bin_centers, ymeans, fit
+
+
+def envelope_ensemble_plot(x, y, env_axis: int = 0, env_type: str = '1sigma', line_op: Optional[str] = None, 
+                           direction: str = 'y', ax=None, line_kws: Dict[str,Any] = None, env_kws: Dict[str,Any] = None):
+    """Plot an ensemble of series as a central series (mean or median) and a shaded envelope
+
+    Parameters
+    ----------
+    x, y
+        The values to plot. By default, ``x`` must be a 1D vector and ``y`` must be 2D with the same number of elements
+        as ``x`` along its second dimension. (That is, if ``x`` has N elements, ``y`` must be M-by-N.) ``y`` will be
+        operated along its first dimension to calculate the mean and ensemble spread. This can be changed with the
+        ``env_axis`` argument. If ``direction = "x"``, then ``x`` must be 2D and ``y`` 1D (but the same rules about
+        dimension lengths matching apply).
+
+    env_axis
+        Which axis of the 2D array to calculate the ensemble statistics along. That is, the default of 0 will calculate
+        the mean/median of ``x`` or ``y`` such that the array is reduced from an M-by-N array to an N-element vector.
+        Setting this to 1 would reduce that M-by-N array to an M element vector.
+
+    env_type
+        How to compute the width of the shaded envelope. This can be a string following one of the patterns "Xsigma"
+        or "Xp,Yp" where the X and Y represent a number. "Xsigma" (e.g. "1sigma, 2sigma, etc") means that the shaded
+        area will be the mean/median plus and minus a multiple of the standard deviation of the ensemble at each point.
+        "Xp,Yp" (e.g. "25p,75p") means that the shaded area will span the Xth and Yth percentile ranges.
+
+    line_op
+        How to compute the central line for the ensemble variable. By default, it will use the mean if ``env_type``
+        is a standard deviation and the median if ``env_type`` is a percentile range. It can be set to the strings
+        "mean" or "median" to override the default.
+
+    direction
+        Controls both how the plot is oriented and which of ``x`` or ``y`` is the ensemble variable. The default of "y"
+        means that ``y`` must be the 2D variable and the envelope will be oriented up and down from the central line.
+        When this is "x", ``x`` must be the 2D variable and the envelope will be oriented left and right from the
+        central line.
+
+    ax
+        The axes to plot into. If not given, the current axes (``pyplot.gca()``) will be used.
+
+    line_kws
+        Keywords to pass to the ``plot`` function for the central line. By default, "label" will be set to ``line_op``.
+        If "label" is present in these keywords, it will be formatted with ``op=line_op``, so you could pass e.g.
+        "Series A ({op})" to have it correctly labeled as "Series A (mean)" or "Series A (median)" depending on the
+        value of ``line_op``.
+
+    env_kws
+        Keyword to pass to the ``fill_between`` or ``fill_betweenx`` function when plotting the envelope. By default
+        "alpha" will be set to 0.5 and "label" will be set to a string describing what the envelope represents (i.e.
+        a standard deviation or percentile range). Similar to ``line_kws``, if "label" is present in this dictionary,
+        it will be formatted with ``env=env_label``, where ``env_label`` is the default label.
+    """
+    if direction == 'y':
+        y_lower, y_bar, y_upper, env_label = _apply_env_type(y, env_type=env_type, env_axis=env_axis, line_op=line_op)
+    elif direction == 'x':
+        x_lower, x_bar, x_upper, env_label = _apply_env_type(x, env_type=env_type, env_axis=env_axis, line_op=line_op)
+    else:
+        raise ValueError(f'Invalid direction "{direction}", allowed values are "x" or "y"')
+        
+    line_kws = line_kws or dict()
+    if 'label' in line_kws:
+        line_kws['label'] = line_kws['label'].format(op=line_op)
+    else:
+        line_kws['label'] = line_op
+        
+    env_kws = env_kws or dict()
+    env_kws.setdefault('alpha', 0.5)
+    if 'label' in env_kws:
+        env_kws['label'] = env_kws['label'].format(env=env_label)
+    else:
+        env_kws['label'] = env_label
+    
+    ax = ax or plt.gca()
+    if direction == 'y':
+        ax.plot(x, y_bar, **line_kws)
+        ax.fill_between(x, y_lower, y_upper, **env_kws)
+    else:
+        ax.plot(x_bar, y, **line_kws)
+        ax.fill_betweenx(y, x_lower, x_upper, **env_kws)
+
+
+def _apply_env_type(values, env_type, env_axis, line_op):
+    calc_delta = False
+    ms = re.match(r'(\d+)sigma$', env_type)
+    mp = re.match(r'(\d+)p,(\d+)p', env_type)
+    if ms:
+        line_op = line_op or 'mean'
+        s = int(ms.group(1))
+        spread = np.nanstd(values, ddof=1, axis=env_axis)
+        lower = s*spread
+        upper = lower
+        label = f'{s}$\\sigma$'
+        calc_delta = True
+    elif mp:
+        line_op = line_op or 'median'
+        p1 = float(mp.group(1))
+        p2 = float(mp.group(2))
+        lower = np.nanpercentile(values, p1, axis=env_axis)
+        
+        upper = np.nanpercentile(values, p2, axis=env_axis)
+        label = f'[{p1:.0f}, {p2:.0f}] %ile'
+    else:
+        raise ValueError(f'Invalid env_type: "{env_type}", permitted patterns are "D+sigma" or "D+p,D+p" where "D+" represents 1 or more digits')
+    
+    if line_op == 'mean':
+        y_bar = np.nanmean(values, axis=env_axis)
+    elif line_op == 'median':
+        y_bar = np.nanmedian(values, axis=env_axis)
+    else:
+        raise ValueError(f'Invalid line_op: "{line_op}", permitted values are "mean" and "median"')
+    
+    if calc_delta:
+        lower = y_bar - lower
+        upper = y_bar + upper
+        
+    return lower, y_bar, upper, label

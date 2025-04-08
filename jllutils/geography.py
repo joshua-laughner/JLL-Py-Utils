@@ -299,3 +299,63 @@ def great_circle_distance(lon1: np.ndarray, lat1: np.ndarray, lon2: np.ndarray, 
     inner = np.sin(dlat/2)**2 + (1 - np.sin(dlat/2)**2 - np.sin((lat1 + lat2)/2)**2) * np.sin(dlon/2)**2
     central_angle = 2 * np.arcsin(np.sqrt(inner))
     return central_angle * earth_radius
+
+
+def format_lon(lon: float, fmt: str = '{lon:.2f} {ew}') -> str:
+    """Format a longitude as a string with "E" or "W" correctly indicated
+
+    Parameters
+    ----------
+    lon
+        The longitude value to format. Must be a scalar.
+
+    fmt
+        Format string to use. The key ``lon`` will be replaced by the longitude value
+        (modified as described in the "Returns" section) and the key ``ew`` will be replaced
+        with the E/W indicator.
+
+    Returns
+    -------
+    lonstr
+        The longitude string, using ``fmt`` as the template. The longitude value will be
+        constrained to the range 0 to 180 degrees; values less than 0 or greater than 180
+        are converted to degrees west.
+    """
+    if lon < 0:
+        ew = 'W'
+        lon = -lon
+    elif lon > 180:
+        ew = 'W'
+        lon -= 360
+    else:
+        ew = 'E'
+
+    return fmt.format(lon=lon, ew=ew)
+
+
+def format_lat(lat: float, fmt: str = '{lat:.2f} {ns}') -> str:
+    """Format a latitude as a string with "N" or "S" correctly indicated.
+
+    Parameters
+    ----------
+    lat
+        The latitude value to format. Must be a scalar.
+
+    fmt
+        Format string to use. The key ``lat`` will be replaced by the latitude value
+        (modified as described in the "Returns" section) and the key ``ns`` will be replaced
+        with the N/S indicator.
+
+    Returns
+    -------
+    latstr
+        The latitude string, using ``fmt`` as the template. The latitude value will always
+        be between 0 and 90, with values less than 90 originally considered as S.
+    """
+    if lat < 0:
+        ns = 'S'
+        lat = -lat
+    else:
+        ns = 'N'
+
+    return fmt.format(lat=lat, ns=ns)
