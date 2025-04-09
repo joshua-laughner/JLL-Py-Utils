@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "JLLUtils"
+description = "General utility functions supporting my research"
+requires-python = ">= 3.8"
+dynamic = ["version"]
+authors = [
+    {name = "Joshua Laughner", email = "jllacct119@gmail.com"},
+]
+dependencies = [
+    "cftime",
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "pydap",
+    "scipy",
+    "statsmodels",
+    "xarray"
+]
+#classifiers = [
+#    "License :: OSI Approved :: Apache Software License"
+#]
+
+
+[project.urls]
+Repository = "https://github.com/joshua-laughner/JLL-Py-Utils"
+Issues = "https://github.com/joshua-laughner/JLL-Py-Utils/issues"
+
