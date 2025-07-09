@@ -17,8 +17,13 @@ import pandas as pd
 import re
 import xarray as xr
 
-from pydap.client import open_url
-from pydap.cas.urs import setup_session
+from ..miscutils import compare_masked_arrays
+
+try:
+    from pydap.client import open_url
+    from pydap.cas.urs import setup_session
+except ImportError:
+    print('pydap not installed, OpenDAP helper functions will not work')
 
 
 class VarnameConflictError(Exception):
@@ -188,7 +193,7 @@ def dataframe_to_ncdf(df, ncfile, index_name=None, index_attrs=None, attrs=None)
         for colname, data in df.items():
             col_attrs = attrs[colname] if colname in attrs else dict()
             make_ncvar_helper(nch, colname, data.to_numpy(), [dim], **col_attrs)
-        
+
 
 def ncdf_to_dataframe(ncfile, target_dim=None, unmatched_vars='silent', top_vars_only=False, no_leading_slash=True, fullpath=False,
                       convert_time=True, time_vars=tuple(), ret_attrs=False):
@@ -243,7 +248,7 @@ def ncdf_to_dataframe(ncfile, target_dim=None, unmatched_vars='silent', top_vars
 
     ret_attrs : bool
         if `True`, return a second dataframe with the attributes. Otherwise, just return the data dataframe.
-    
+
     Returns
     -------
     :class:`pandas.DataFrame`
@@ -637,7 +642,7 @@ def make_nctimevar_helper(nc_handle, var_name, var_data, dims, base_date=dt.date
 
     :param calendar: one of the calendar types defined in the CF conventions document (section 4.4.1)
     :type calendar: str
-    
+
     :param attrs: keyword-value pairs defining attribute to attach to the dimension variable.
 
     :return: the variable object
@@ -653,7 +658,7 @@ def make_ncvar_helper(nc_handle, var_name, var_data, dims, make_cf_time_auto=Tru
     """Create a netCDF variable and store the data for it simultaneously.
 
     This function combines call to :func:`netCDF4.createVariable` and assigning the variable's data and attributes.
-    
+
     Parameters
     ----------
 
@@ -729,7 +734,7 @@ def make_dependent_file_hash(dependent_file):
     -------
     str
         the SHA1 hash
-        
+
     Examples
     --------
     >>> make_dependent_file_hash('demo.nc')                                                                                                                                                
@@ -984,8 +989,8 @@ def copy_nc_group(src, dst, recursive=True, exclude_dimensions=None, exclude_var
             continue
 
         copy_nc_var(src, dst, varname)
-        
-        
+
+
     for grpname, group in src.groups.items():
         if grpname in exclude_groups:
             continue
@@ -1065,7 +1070,7 @@ def copy_nc_var(src, dst, varname, vardata=None, convert_str='no'):
             raise NotImplementedError('Cannot copy vlen strings with >1 dimension')
         for i in range(vardata.shape[0]):
             newvar[i] = get_string(vardata[i])
-        
+
     elif re.match(r'[\|<][SU]\d+', str(variable.dtype)):
         # Handle 2D char arrays. It is important that this comes after the attributes are set
         # so that the characters are interpreted correctly, and we have to do one at a time
@@ -1077,14 +1082,14 @@ def copy_nc_var(src, dst, varname, vardata=None, convert_str='no'):
         # Numeric types should just copy directly
         newvar[tuple()] = vardata
 
-        
+
 def ncdump(file_or_handle, var_att=None, list_atts=False, list_att_values=False, grep=None, grep_re=None, _indent_level=0):
     """Print a tree visualization of a netCDF file
 
     Prints out names of variables in a netCDF file. If groups a present, they are printed with variables
     contained in them shown indented by one level. Attributes (with or without values) can also be printed.
     In the tree, lines starting with "*" are groups, "-" are variables, and "+" are attributes.
-    
+
     Parameters
     ----------
     file_or_handle : str, netCDF4.Dataset, or netCDF4.Group
@@ -1116,7 +1121,7 @@ def ncdump(file_or_handle, var_att=None, list_atts=False, list_att_values=False,
         grep = grep.lower()
     if isinstance(grep_re, str):
         grep_re = re.compile(grep_re)
-        
+
     indent = '  ' * _indent_level
     with smart_nc(file_or_handle) as ds:
         for grpname, group in ds.groups.items():
@@ -1154,6 +1159,100 @@ def _find_dim_in_group_or_parents(grp, dimname):
             return grp.dimensions[dimname]
 
     return KeyError('No dimension named "{name}" found in this group or any parent'.format(name=dimname))
+
+
+def compare_netcdf_data(file1, file2, subset_fxn=None, verbose=True) -> bool:
+    """Compare the values of variables in two netCDF files.
+
+    This will recursively check that all groups have the same variables and
+    that the arrays for those variables are equal; they will be checked as masked
+    arrays using :func:`compare_masked_arrays` from the :mod:`miscutils` module.
+
+    When ``verbose`` is ``True``, this will print:
+
+    - details about which variables and groups are only in one file or the other, and
+    - details about which variables have different data
+
+    When ``verbose`` is ``False``, it will return as soon as it finds a mismatch between
+    files.
+
+    The ``subset_fxn`` argument, if given, must be a callable that takes 5 arguments:
+
+    - the array to be subset,
+    - the name of the variable (within its group),
+    - the group name (will be an empty string for the root group),
+    - the netCDF dataset handle, and
+    - a boolean that will be ``False`` if this is the first file and ``True`` if this is the second.
+
+    It must return the subset of that array that should be compared against the other files' data.
+
+    Returns
+    -------
+    bool
+        ``True`` if the two files' data match, ``False`` otherwise.
+    """
+    with ncdf.Dataset(file1) as ds1, ncdf.Dataset(file2) as ds2:
+        return _compare_netcdf_groups(ds1, ds2, '', subset_fxn=subset_fxn, verbose=verbose)
+
+def _compare_netcdf_groups(ds1, ds2, group, subset_fxn=None, verbose=True) -> bool:
+    all_match, common_vars = _compare_available_items(ds1.variables.keys(), ds2.variables.keys(), 'variables', group, verbose=verbose)
+    if not all_match and not verbose:
+        return all_match
+
+    for varname in sorted(common_vars):
+        ds1_vals = ds1[f'{group}/{varname}'][:]
+        ds2_vals = ds2[f'{group}/{varname}'][:]
+        if subset_fxn is not None:
+            ds1_vals = subset_fxn(ds1_vals, varname, group, ds1, False)
+            ds2_vals = subset_fxn(ds2_vals, varname, group, ds2, True)
+
+        equal = compare_masked_arrays(ds1_vals, ds2_vals)
+        if not equal:
+            all_match = False
+            if verbose:
+                print(f'- {group}/{varname} values do NOT match')
+            elif not all_match:
+                return all_match
+        elif verbose:
+            print(f'- {group}/{varname} values do match')
+
+
+    groups_match, common_groups = _compare_available_items(ds1.groups.keys(), ds2.groups.keys(), 'groups', group, verbose=verbose)
+    if not groups_match and verbose:
+        all_match = False
+    elif not groups_match:
+        return False
+
+    for next_group in sorted(common_groups):
+        group_matches = _compare_netcdf_groups(ds1, ds2, f'{group}/{next_group}', subset_fxn=subset_fxn, verbose=verbose)
+        if not group_matches:
+            all_match = False
+            if not verbose:
+                return all_match
+
+    return all_match
+
+
+def _compare_available_items(ds1_set, ds2_set, description, group, verbose):
+    ds1_vars = set(ds1_set)
+    ds2_vars = set(ds2_set)
+    common = ds1_vars.intersection(ds2_vars)
+    ds1_only = ds1_vars.difference(ds2_vars)
+    ds2_only = ds2_vars.difference(ds1_vars)
+
+    all_match = True
+    if len(ds1_only) > 0:
+        varnames = ', '.join(sorted(ds1_only))
+        if verbose:
+            print(f'{len(ds1_only)} {description} only in group "/{group}" of the first file ({varnames})')
+        all_match = False
+    if len(ds2_only) > 0:
+        varnames = ', '.join(sorted(ds2_only))
+        if verbose:
+            print(f'{len(ds2_only)} {description} only in group "/{group}" of the second file ({varnames})')
+        all_match = False
+
+    return all_match, common
 
 
 def read_opendap_url(url: str, variables: dict, date: Optional[dt.datetime] = None, host='urs.earthdata.nasa.gov', 
@@ -1208,14 +1307,14 @@ def read_opendap_url(url: str, variables: dict, date: Optional[dt.datetime] = No
 
     if not isinstance(variables, dict):
         variables = {k: k for k in variables}
-        
+
     if host:
         user, _, password = netrc().hosts[host]
         session = setup_session(user, password, check_url=url)
         pydap_ds = open_url(url, session=session)
     else:
         pydap_ds = open_url(url)
-    
+
     xr_store = xr.backends.PydapDataStore(pydap_ds)
     with xr.open_dataset(xr_store) as ds:
         data = dict()
