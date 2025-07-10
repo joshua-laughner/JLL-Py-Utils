@@ -17,7 +17,7 @@ import pandas as pd
 import re
 import xarray as xr
 
-from ..miscutils import compare_masked_arrays
+from ..miscutils import compare_masked_arrays, compare_unmasked_arrays
 
 try:
     from pydap.client import open_url
@@ -1161,95 +1161,173 @@ def _find_dim_in_group_or_parents(grp, dimname):
     return KeyError('No dimension named "{name}" found in this group or any parent'.format(name=dimname))
 
 
-def compare_netcdf_data(file1, file2, subset_fxn=None, verbose=True) -> bool:
+def compare_netcdf_data(file1, file2, check_attrs=True, exclude_attrs=set(), subset_fxn=None, verbose=False) -> bool:
     """Compare the values of variables in two netCDF files.
 
     This will recursively check that all groups have the same variables and
     that the arrays for those variables are equal; they will be checked as masked
     arrays using :func:`compare_masked_arrays` from the :mod:`miscutils` module.
 
-    When ``verbose`` is ``True``, this will print:
+    Parameters
+    ----------
+    file1, file2
+        Paths to the two files to compare
 
-    - details about which variables and groups are only in one file or the other, and
-    - details about which variables have different data
+    check_attrs
+        Whether to include attributes in the comparison; note that attributes are compared with simple equality
+        (so floating point attributes may return false negatives).
 
-    When ``verbose`` is ``False``, it will return as soon as it finds a mismatch between
-    files.
+    exclude_attrs
+        A sequence of attribute names to exclude from the comparison. Any attribute with one of these names, be it
+        on a group or variable, will not contribute to the overall comparison. That is, if an attribute from these
+        names is only in one file or has a different value between the files, this function can still return ``True``.
 
-    The ``subset_fxn`` argument, if given, must be a callable that takes 5 arguments:
+    subset_fxn
+        If given, this must be a callable that takes 5 arguments:
 
-    - the array to be subset,
-    - the name of the variable (within its group),
-    - the group name (will be an empty string for the root group),
-    - the netCDF dataset handle, and
-    - a boolean that will be ``False`` if this is the first file and ``True`` if this is the second.
+            - the array to be subset,
+            - the name of the variable (within its group),
+            - the group name (will be an empty string for the root group),
+            - the netCDF dataset handle, and
+            - a boolean that will be ``False`` if this is the first file and ``True`` if this is the second.
 
-    It must return the subset of that array that should be compared against the other files' data.
+        It must return the subset of that array that should be compared against the other files' data.
+
+    verbose
+        The default value of ``False`` will only print differences between the files that contribute to the overall
+        comparison. Setting this to ``True`` will print whether every single comparison matched or not. Setting this
+        to ``None`` will suppress all printing and will also make the function return immediately on the first mismatch
+        it finds between the files.
 
     Returns
     -------
     bool
-        ``True`` if the two files' data match, ``False`` otherwise.
+        ``True`` if the two files' data match (except for any excluded attributes), ``False`` otherwise.
     """
     with ncdf.Dataset(file1) as ds1, ncdf.Dataset(file2) as ds2:
-        return _compare_netcdf_groups(ds1, ds2, '', subset_fxn=subset_fxn, verbose=verbose)
+        return _compare_netcdf_groups(ds1, ds2, '', check_attrs=check_attrs, exclude_attrs=exclude_attrs, subset_fxn=subset_fxn, verbose=verbose)
 
-def _compare_netcdf_groups(ds1, ds2, group, subset_fxn=None, verbose=True) -> bool:
+
+def _compare_netcdf_groups(ds1, ds2, group, check_attrs=True, exclude_attrs=set(), subset_fxn=None, verbose=False) -> bool:
     all_match, common_vars = _compare_available_items(ds1.variables.keys(), ds2.variables.keys(), 'variables', group, verbose=verbose)
-    if not all_match and not verbose:
+    if not all_match and verbose is None:
         return all_match
 
+    if check_attrs and not _check_netcdf_attrs(ds1, ds2, group, exclude_attrs=exclude_attrs, verbose=verbose):
+        all_match = False
+        if verbose is None:
+            return all_match
+
     for varname in sorted(common_vars):
-        ds1_vals = ds1[f'{group}/{varname}'][:]
-        ds2_vals = ds2[f'{group}/{varname}'][:]
+        var1 = ds1[f'{group}/{varname}']
+        ds1_vals = var1[:]
+        var2 = ds2[f'{group}/{varname}']
+        ds2_vals = var2[:]
         if subset_fxn is not None:
             ds1_vals = subset_fxn(ds1_vals, varname, group, ds1, False)
             ds2_vals = subset_fxn(ds2_vals, varname, group, ds2, True)
 
-        equal = compare_masked_arrays(ds1_vals, ds2_vals)
+        v1_masked = hasattr(ds1_vals, 'mask')
+        v2_masked = hasattr(ds2_vals, 'mask')
+        if v1_masked and v2_masked:
+            equal = compare_masked_arrays(ds1_vals, ds2_vals)
+            both_masked_or_unmasked = True
+        else:
+            equal = compare_unmasked_arrays(ds1_vals, ds2_vals)
+            both_masked_or_unmasked = not (v1_masked or v2_masked)
+
+        if both_masked_or_unmasked:
+            mask_warning = ''
+        else:
+            mask_warning = '(NOTE: comparing a masked array with a standard array)'
+
         if not equal:
             all_match = False
-            if verbose:
-                print(f'- {group}/{varname} values do NOT match')
-            elif not all_match:
+            if verbose is not None:
+                print(f'- {group}/{varname} values do NOT match {mask_warning}')
+            elif not all_match and verbose is None:
                 return all_match
         elif verbose:
-            print(f'- {group}/{varname} values do match')
+            print(f'- {group}/{varname} values do match {mask_warning}')
 
+        if check_attrs and not _check_netcdf_attrs(var1, var2, f'{group}/{varname}', exclude_attrs=exclude_attrs, verbose=verbose):
+            all_match = False
+            if verbose is None:
+                return all_match
 
     groups_match, common_groups = _compare_available_items(ds1.groups.keys(), ds2.groups.keys(), 'groups', group, verbose=verbose)
-    if not groups_match and verbose:
-        all_match = False
-    elif not groups_match:
+    if not groups_match and verbose is None:
         return False
+    elif not groups_match:
+        all_match = False
 
     for next_group in sorted(common_groups):
         group_matches = _compare_netcdf_groups(ds1, ds2, f'{group}/{next_group}', subset_fxn=subset_fxn, verbose=verbose)
         if not group_matches:
             all_match = False
-            if not verbose:
+            if verbose is None:
                 return all_match
 
     return all_match
 
 
-def _compare_available_items(ds1_set, ds2_set, description, group, verbose):
+def _check_netcdf_attrs(obj1, obj2, object_path, exclude_attrs=set(), verbose=False) -> bool:
+    attrs1 = set(obj1.__dict__.keys())
+    attrs2 = set(obj2.__dict__.keys())
+    attrs_match, common_attrs = _compare_available_items(attrs1, attrs2, 'attributes', object_path, exclude=exclude_attrs, verbose=verbose)
+
+    for attr in common_attrs:
+        attr_val1 = obj1.getncattr(attr)
+        attr_val2 = obj2.getncattr(attr)
+        # Use np.all in case the attributes are arrays - this will work
+        # for scalars too
+        if not np.all(attr_val1 == attr_val2):
+            if attr in exclude_attrs and verbose:
+                print(f'- {object_path}.{attr} values do NOT match, but this attribute is excluded from the overall comparison')
+            elif attr not in exclude_attrs and verbose is not None:
+                print(f'- {object_path}.{attr} values do NOT match')
+                attrs_match = False
+            elif attr not in exclude_attrs and verbose is None:
+                return False
+        elif verbose:
+            print(f'- {object_path}.{attr} values do match')
+
+
+    return attrs_match
+
+
+
+def _compare_available_items(ds1_set, ds2_set, description, object_path, exclude=set(), verbose=False):
     ds1_vars = set(ds1_set)
     ds2_vars = set(ds2_set)
     common = ds1_vars.intersection(ds2_vars)
     ds1_only = ds1_vars.difference(ds2_vars)
     ds2_only = ds2_vars.difference(ds1_vars)
 
+    ds1_only_excluded = ds1_only.intersection(exclude)
+    ds1_only = ds1_only.difference(exclude)
+    ds2_only_excluded = ds2_only.intersection(exclude)
+    ds2_only = ds2_only.difference(exclude)
+
+    if len(ds1_only_excluded) > 0:
+        names = ', '.join(sorted(ds1_only_excluded))
+        if verbose:
+            print(f'{len(ds1_only_excluded)} {description} excluded from the overall check only in "/{object_path}" of the first file ({names})')
+    if len(ds2_only_excluded) > 0:
+        names = ', '.join(sorted(ds2_only_excluded))
+        if verbose:
+            print(f'{len(ds2_only_excluded)} {description} excluded from the overall check only in "/{object_path}" of the first file ({names})')
+
     all_match = True
     if len(ds1_only) > 0:
-        varnames = ', '.join(sorted(ds1_only))
-        if verbose:
-            print(f'{len(ds1_only)} {description} only in group "/{group}" of the first file ({varnames})')
+        names = ', '.join(sorted(ds1_only))
+        if verbose is not None:
+            print(f'{len(ds1_only)} {description} only in "/{object_path}" of the first file ({names})')
         all_match = False
     if len(ds2_only) > 0:
-        varnames = ', '.join(sorted(ds2_only))
-        if verbose:
-            print(f'{len(ds2_only)} {description} only in group "/{group}" of the second file ({varnames})')
+        names = ', '.join(sorted(ds2_only))
+        if verbose is not None:
+            print(f'{len(ds2_only)} {description} only in "/{object_path}" of the second file ({names})')
         all_match = False
 
     return all_match, common
