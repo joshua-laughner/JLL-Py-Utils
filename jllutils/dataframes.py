@@ -23,8 +23,7 @@ import pandas as pd
 from .subutils import ncdf
 
 
-def interpolate_series_to(series, values, method='index', axis=0, limit_direction='both', limit_area=None,
-                          downcast=None, **kwargs):
+def interpolate_series_to(series, values, method='index', axis=0, limit_direction='both', limit_area=None, **kwargs):
     """Interpolate a Pandas series or dataframe to specified index values
 
     This function is similar to the `"index"` method of `interpolate` on Pandas series/dataframes in that it does
@@ -47,8 +46,6 @@ def interpolate_series_to(series, values, method='index', axis=0, limit_directio
         then target values before/after the first/last value in the index, respectively, will not be filled.
     limit_area
         Controls whether only interpolation ("inside"), only extrapolation ("outside") or both (`None`) are done.
-    downcast
-        Downcast types if possible.
     kwargs
         Additional keyword arguments to pass to :meth:`pandas.Series.interpolate` and the interpolating function.
 
@@ -126,7 +123,7 @@ def interpolate_series_to(series, values, method='index', axis=0, limit_directio
 
     new_index = series.index.union(uvalues)
     new_df = series.reindex(new_index).interpolate(method=method, axis=axis, limit_direction=limit_direction,
-                                                   limit_area=limit_area, downcast=downcast, inplace=False, **kwargs)
+                                                   limit_area=limit_area, inplace=False, **kwargs)
     return new_df.loc[values]
 
 

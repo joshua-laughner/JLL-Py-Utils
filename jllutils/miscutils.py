@@ -190,7 +190,7 @@ class ProgressBar(object):
     def _print_bar(self, index, numeric_style='none'):
         always_update = True
         if numeric_style is None or numeric_style == 'none':
-            number_fxn = lambda index: ''
+            def number_fxn(index): return ''
             always_update = False
         elif numeric_style == 'percent':
             number_fxn = self._format_percent
@@ -215,7 +215,7 @@ class ProgressBar(object):
             number = number_fxn(index)
             line = '\r{pre}{bar}{spacer}{num}{suf}'.format(pre=self._prefix, bar=bar, spacer=spacer, num=number, suf=self._suffix)
             print(line, end='')
-            
+
     def _format_counter(self, index):
         nchr = len(str(self._end_count))
         fmt = r'{{idx:{}}}/{{end}}'.format(nchr)
@@ -264,7 +264,7 @@ class ProgressMessage(object):
             Three keywords are always available: "prefix", "suffix", and "idx", which will be replaced with the prefix
             string, suffix string, and current index, respectively. Other keywords can be used, so long as they are
             given to each call of :meth:`print_message`.
-        
+
         prefix : str
             A prefix string to use. It will replace "{prefix}" in `format`. If it does not end with a space, one is
             added.
@@ -279,7 +279,7 @@ class ProgressMessage(object):
 
         width : int
             Number of characters wide each message may be.
-    
+
         truncate : bool
             When `True`, messages longer than `width` are truncated to `width`. If this is `False`, messages can 
             exceed the width, which also means characters from previous messages may be left behind.
@@ -541,7 +541,7 @@ def find_files(path: str, name: Optional[str] = None, iname: Optional[str] = Non
                     continue
                 elif xtype == 'l' and not is_dir and not is_link:
                     continue
-                
+
             matched_files.append(os.path.join(root, this_path))
     return matched_files
 
@@ -804,9 +804,9 @@ def split_outside_group(s, grp_start, grp_stop=None, splitchar=string.whitespace
 
     This function deals with the problem of, e.g. splitting a string into parts where individual parts may contain the
     split character, but should not split because it is inside a "group". For example, given::
-    
+
         "John Doe"  50  6.0
-        
+
     we may want to split on spaces to parse this line of the table, but "John Doe" should not be split because it is
     grouped by quotation marks. This function handles that.
 
@@ -814,10 +814,10 @@ def split_outside_group(s, grp_start, grp_stop=None, splitchar=string.whitespace
     ----------
     s : str
         The string to split
-        
+
     grp_start : str
         The character that opens a group. It will be considered escaped (and not counted) if preceded by a backslash.
-        
+
     grp_stop : str
         The character that closes a group. If not specified, is taken to be the same as `open`. Also escaped by
         backslashes.
@@ -1082,3 +1082,115 @@ def logging_context(level: Union[int, str] = logging.CRITICAL, logger: Optional[
         yield
         logger.setLevel(curr_level)
 
+
+
+def compare_unmasked_arrays(a, b, return_stats: bool = False):
+    """Compare two non-masked numpy arrays
+
+    This function will check that ``a`` and ``b`` are the same with :func:`np.allclose`
+    if both ``a`` and ``b`` are floating point types, and :func:`np.array_equal` otherwise.
+    By default, it returns a boolean that will be ``True`` if they pass the given test.
+    Setting the ``return_stats`` keyword to ``True`` will instead return a dictionary
+    that includes this boolean as the key "equal", along with various statistics about the
+    differences between a and b.
+    """
+    a_is_masked = hasattr(a, 'mask')
+    b_is_masked = hasattr(b, 'mask')
+    if a_is_masked or b_is_masked:
+        raise TypeError(f'This function compares regular (not masked) arrays only (a is masked: {a_is_masked}, b is masked: {b_is_masked})')
+
+    if np.issubdtype(a.dtype, np.floating) and np.issubdtype(b.dtype, np.floating):
+        ok = np.allclose(a, b, equal_nan=True)
+    else:
+        ok = np.array_equal(a, b)
+
+    if not return_stats:
+        return ok
+
+    shapes_match = a.shape == b.shape
+    stats = {'equal': ok, 'shapes_match': shapes_match}
+    if shapes_match:
+        delta = b - a 
+        stats['mindiff'] = np.nanmin(delta)
+        stats['maxdiff'] = np.nanmax(delta)
+        stats['meandiff'] = np.nanmean(delta)
+        stats['mediandiff'] = np.nanmedian(delta)
+    else:
+        stats['mindiff'] = np.nan
+        stats['maxdiff'] = np.nan
+        stats['meandiff'] = np.nan
+        stats['mediandiff'] = np.nan
+
+    return stats
+
+
+def compare_masked_arrays(a, b, return_stats: bool = False):
+    """Compare two masked numpy arrays
+
+    This function will check that ``a`` and ``b`` are the same with :func:`np.ma.allclose`
+    if both ``a`` and ``b`` are floating point types. Otherwise, it will check the values with
+    :func:`np.array_equal` and verify that the masks are equivalent (meaning a mask of
+    ``np.False_`` and one that is an array of all ``False`` values are considered the same).
+    By default, it returns a boolean that will be ``True`` if they pass the given test.
+    Setting the ``return_stats`` keyword to ``True`` will instead return a dictionary
+    that includes this boolean as the key "equal", along with various statistics about the
+    differences between a and b.
+    """
+    a_not_masked = not hasattr(a, 'mask')
+    b_not_masked = not hasattr(b, 'mask')
+    if a_not_masked or b_not_masked:
+        raise TypeError(f'This function compares masked arrays only (a is masked: {not a_not_masked}, b is masked: {not b_not_masked})')
+
+    if np.issubdtype(a.dtype, np.floating) and np.issubdtype(b.dtype, np.floating):
+        ok = np.ma.allclose(a, b, masked_equal=True)
+        mask_ok = None
+    else:
+        val_ok = np.array_equal(a, b)
+        mask_ok = _masks_equal(a, b)
+        ok = val_ok and mask_ok
+
+
+    if not return_stats:
+        return ok
+
+    if mask_ok is None:
+        # Means we skipped calculating this before, do so now for the return dict.
+        mask_ok = _masks_equal(a, b)
+
+    shapes_match = a.shape == b.shape
+    stats = {'equal': ok, 'masks_equal': mask_ok, 'shapes_match': shapes_match}
+    if shapes_match:
+        delta = b - a 
+        stats['mindiff'] = np.ma.min(delta)
+        stats['maxdiff'] = np.ma.max(delta)
+        stats['meandiff'] = np.ma.mean(delta)
+        stats['mediandiff'] = np.ma.median(delta)
+    else:
+        stats['mindiff'] = np.nan
+        stats['maxdiff'] = np.nan
+        stats['meandiff'] = np.nan
+        stats['mediandiff'] = np.nan
+
+    return stats
+
+
+def _masks_equal(a, b):
+    def mask_is_all_false(m):
+        if np.ndim(m) == 0:
+            return not m
+        else:
+            return not np.any(m)
+
+    # First, just test if two masks are the same. If so, we can just return.
+    if np.array_equal(a.mask, b.mask):
+        return True
+
+    # Failing that first doesn't doesn't mean the masks are different; we might
+    # have a np.False_ mask for one and a proper array that is all False for the
+    # other, so check if both evaluate to an all-False mask
+    if not np.any(a.mask) and not np.any(b.mask):
+        return True
+
+    # If the arrays aren't elementwise equal and don't evaluate to all false,
+    # then they really aren't equal
+    return False
