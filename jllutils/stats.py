@@ -110,7 +110,7 @@ class BootstrapSampler(object):
 
         Parameters
         ----------
-        
+
         sample_size : int
             How large each sample should be. Doesn't need to be given if the default sample size was
             specified when creating the instance. If a value is given here, it overrides the default sample size.
@@ -645,7 +645,7 @@ class PolyFitModel(object):
         except IndexError:
             return 0.0
 
-    def plot_fit(self, ax=None, freeze_xlims=True, label='{fit}', ls='--', color='gray', **style):
+    def plot_fit(self, ax=None, fit_xlim=None, freeze_xlims=True, label='{fit}', ls='--', color='gray', **style):
         """Plot the fit represented by this model on a set of axes
 
         Parameters
@@ -688,7 +688,11 @@ class PolyFitModel(object):
         if ax is None:
             ax = plt.gca()
 
-        x = np.array(ax.get_xlim())
+        if fit_xlim is None:
+            x = np.array(ax.get_xlim())
+        else:
+            x = np.array(fit_xlim)
+
         y = self.predict(x)
         h = ax.plot(x, y, **style)
         if freeze_xlims:
@@ -708,7 +712,7 @@ class BootstrapModelFit:
 
         y
             The dependent variable. Values that are NaN in ``x`` or ``y`` are removed.
-        
+
         model
             Which model of :class:`PolyFitModel` to use. "york" is not supported.
 
@@ -723,11 +727,11 @@ class BootstrapModelFit:
         is_nan = np.isnan(x) | np.isnan(y)
         x = x[~is_nan]
         y = y[~is_nan]
-        
+
         fit0 = PolyFitModel(x, y, model=model)
         slopes = np.full(n_iter, np.nan)
         intercepts = np.full(n_iter, np.nan)
-        
+
         xy = np.vstack([x, y]).T
         for i in range(n_iter):
             xyboot = bootstrap_sample(xy, xy.shape[0], with_replacement=True, seed=seed)
@@ -736,14 +740,14 @@ class BootstrapModelFit:
             intercepts[i] = fit_boot.yint
             if seed is not None:
                 seed += 1
-            
+
         self.slope = fit0.slope
         self.bootstrap_slopes = slopes
         self.slope_unc = np.std(slopes, ddof=1)
         self.intercept = fit0.yint
         self.bootstrap_intercepts = intercepts
         self.intercept_unc = np.std(intercepts, ddof=1)
-        
+
     def plot_fit(self, ax=None, xlim: Optional[Tuple[float,float]] = None, line_kws: Optional[dict] = None, patch_kws: Optional[dict] = None):
         """Plot the fit and its uncertainty.
 
@@ -756,28 +760,28 @@ class BootstrapModelFit:
         ----------
         ax
             Axes to plot into
-        
+
         """
         line_kws = line_kws or dict()
         patch_kws = patch_kws or dict()
-        
+
         ax = ax or plt.gca()
         xlim = np.asarray(xlim) if xlim is not None else np.asarray(ax.get_xlim())
         ax.set_xlim(xlim)
-        
+
         xpts = np.linspace(xlim[0], xlim[1]).reshape(1, -1)
         ypts = xpts.squeeze() * self.slope + self.intercept
         lines = xpts * self.bootstrap_slopes[:, np.newaxis] + self.bootstrap_intercepts[:, np.newaxis]
         line_std = np.std(lines, axis=0, ddof=1)
         lower = ypts - line_std
         upper = ypts + line_std
-        
+
         line_kws.setdefault('ls', '--')
         line_kws.setdefault('color', 'gray')
         line_kws.setdefault('label', f'y = ({self.slope:.4g} $\\pm$ {self.slope_unc:.4g})x + {self.intercept:.4g} $\\pm$ {self.intercept_unc:.4g}')
         patch_kws.setdefault('color', 'lightgray')
         patch_kws.setdefault('alpha', 0.5)
-        
+
         ax.plot(xlim, xlim*self.slope + self.intercept, **line_kws)
         ax.fill_between(xpts.squeeze(), lower, upper, **patch_kws)
 
@@ -830,13 +834,13 @@ class RunningMean(object):
         inst = cls(values.shape, dtype=values.dtype)
         inst.update(values, weights)
         return inst
-        
+
     def update(self, values, weights=1.0):
         """Add an array of values to the running mean
-        
+
         Parameters
         ----------
-        
+
         values : array-like
             The values to add to the running mean
 
@@ -907,13 +911,13 @@ class RunningStdDev(object):
         inst = cls(values.shape, dtype=values.dtype)
         inst.update(values)
         return inst
-        
+
     def update(self, values):
         """Add an array of values to the running standard deviation
-        
+
         Parameters
         ----------
-        
+
         values : array-like
             The values to add to the running standard deviation
 
@@ -951,10 +955,10 @@ class RunningMeanAndStd(object):
 
     def update(self, values):
         """Add an array of values to the running mean and standard deviation
-        
+
         Parameters
         ----------
-        
+
         values : array-like
             The values to add to the running mean and standard deviation
 
@@ -966,7 +970,7 @@ class RunningMeanAndStd(object):
         """
         self._mean.update(values)
         self._std.update(values)
-        
+
 
 
 def _rolling_input_helper(A, window, edges, force_centered):
@@ -1621,7 +1625,7 @@ def nanabsmax(a, *args, **kwargs):
 
     args
         Additional positional arguments recognized by nanmax and nanmin.
-    
+
     kwargs
         Additional keyword arguments recognized by nanmax and nanmin. This and `args` can be use to operate
         along a specific axis for example.
@@ -1668,12 +1672,12 @@ def _handle_nans(method, x, y, xerr=None, yerr=None):
 
 def reldiff(a, b, denom='first'):
     """Compute the fraction difference between two quantities
-    
+
     Given two numbers, `a` and `b`, computes :math:`(b - a)/|a|`.
 
     Parameters
     ----------
-    
+
     a, b : numeric
         Values to compute the relative difference between.
 
@@ -1683,7 +1687,7 @@ def reldiff(a, b, denom='first'):
 
     Returns
     -------
-    
+
     numeric
         The fractional difference between a and b.
     """
@@ -1723,5 +1727,5 @@ def isoutlier(data, m=2):
     d = np.abs(data - np.nanmedian(data))
     mdev = np.nanmedian(d)
     s = d / mdev if mdev else np.zeros_like(data)
-    
+
     return s >= m 
