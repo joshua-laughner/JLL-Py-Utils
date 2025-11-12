@@ -8,6 +8,7 @@ from numpy import ma
 import pandas as pd
 import re
 import scipy.stats as st
+from sklearn.linear_model import LinearRegression
 from statsmodels import api as sm, tools as smtools
 from statsmodels.robust.robust_linear_model import RLM
 from statsmodels.robust.norms import TukeyBiweight
@@ -365,6 +366,11 @@ class PolyFitModel(object):
             * 'ols' - do ordinary least-squares fitting of the data with :mod:`statsmodels`. Unlike y-resid, this
               includes more information in the `results` property, like p-values.
             * 'ols0' - do ordinary least-squares fitting with :mod:`statsmodels`, with no intercept.
+            * 'robust' - do a robust fit, using Tukey's Biweighting function as the norm.
+            * 'robust0' - as 'robust', but with the intercept set to 0.
+            * 'sk' - fit using the Scikit Learn :class:`LinearRegression` class. If ``yerr`` is given,
+              then the inverse of those values will be used as the weights for the fit.
+            * 'sk0' - as 'sk', but with the intercept left to 0.
             * any function that takes a minimum of four arguments (`x`, `y`, `xerr`, and `yerr`, where `xerr` and
               `yerr` are the error/uncertainty in `x` and `y`) and returns three values:
                 - the polynomial coefficients as a 1D array-like object, starting from the x**0 term
@@ -578,6 +584,32 @@ class PolyFitModel(object):
 
             return coeffs, coeffs_err, fit
 
+        def sk_fit(x, y, yerr=None, zero_int=False):
+            # This replicates the fitting used in https://doi.org/10.1029/2023GL105811,
+            # which I wanted to reproduce. It's also a nice alternative to york for when
+            # you need a simple weighted fit.
+            model = LinearRegression(fit_intercept=not zero_int)
+
+            # This expects x to be 2D, so create a singleton second
+            # dimension.
+            if yerr is None:
+                fit = model.fit(x.reshape(-1,1), y)
+            else:
+                fit = model.fit(x.reshape(-1,1), y, 1/yerr)
+
+            # Even though this is deprecated, there isn't a replacement for
+            # getting the covariance directly in the new Polynomial classes.
+            # This returns the highest degree first, so the slope variance
+            # is actually in the first diagonal location.
+            _, cov = np.polyfit(x, y, 1, cov=True)
+
+            coeffs = np.array([fit.intercept_, fit.coef_.item()])
+            coeff_errs = np.array([
+                np.sqrt(cov[1][1]),
+                np.sqrt(cov[0][0])
+            ])
+            return coeffs, coeff_errs, fit
+
         model_lower = model.lower()
         if not isinstance(model, str):
             return model
@@ -597,6 +629,10 @@ class PolyFitModel(object):
             return lambda x, y, xerr, yerr: robust(x, y, zero_int=False)
         elif model_lower == 'robust0':
             return lambda x, y, xerr, yerr: robust(x, y, zero_int=True)
+        elif model_lower == 'sk':
+            return lambda x, y, xerr, yerr: sk_fit(x, y, yerr=yerr, zero_int=False)
+        elif model_lower == 'sk0':
+            return lambda x, y, xerr, yerr: sk_fit(x, y, yerr=yerr, zero_int=True)
         else:
             raise TypeError('Unknown model type: "{}"'.format(model))
 
@@ -665,7 +701,7 @@ class PolyFitModel(object):
 
             .. note::
                The label is *always* formatted using the `format` method, so any literal curly braces will need
-               to be doubled (e.g. for Latex, you'd need to pass `"\mathrm{{VSF}}"` instead of `"\mathrm{VSF}"`)
+               to be doubled (e.g. for Latex, you'd need to pass `"\\mathrm{{VSF}}"` instead of `"\\mathrm{VSF}"`)
 
         ls : str
             The line style to use when plotting the fit.
