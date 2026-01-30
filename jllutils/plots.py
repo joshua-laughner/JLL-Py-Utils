@@ -42,7 +42,7 @@ class Subplots(object):
             ax = sp.next_subplot()
             ax.plot(vec)
     """
-    def __init__(self, nplots, nx=None, ny=None, sharex=False, sharey=False, figsize=(8,6), subplot_kw=None):
+    def __init__(self, nplots, nx=None, ny=None, sharex=False, sharey=False, hide_shared_ticks=True, figsize=(8,6), subplot_kw=None):
         """Create a Subplots instance
 
         Parameters
@@ -57,8 +57,20 @@ class Subplots(object):
             `nplots`, a `ValueError` is raised. If both are `None`, then `nx` is
             set to 2 and `ny` is computed.
 
-        sharex, sharey : bool
-            Whether the x- and y- axes are shared by the plots (range, scale, etc.)
+        sharex, sharey : bool | str
+            Whether the x- and y- axes are shared by the plots (range, scale, etc.).
+            Setting either to ``True`` or 'all' will share that axis across all plots. 
+            Setting ``sharex`` to "col" or ``sharey`` to "row" will only share for
+            that column or row, respectively.
+
+        hide_shared_ticks : bool
+            By default, when an axis is shared only the leftmost plot's y-axis and
+            bottommost plot's xaxis will show ticks. Set this to ``False`` to keep
+            ticks on all axes, "x" to only hide ticks on the x-axes, and "y" to only
+            hide ticks on the y-axes.
+
+            See note below about attributes that can help decide whether to include
+            x- and y- axis labels.
 
         figsize : tuple
             The size of *each subplot* as a tuple, `(width, height)`, in inches.
@@ -72,6 +84,11 @@ class Subplots(object):
         Creating a Subplots instance does not automatically instantiate all the
         axes, each axis in created as needed. This way, if you need 10 plots but
         want 3 across, the last row will not have 2 empty axes, just whitespace.
+
+        After calling ``next_subplot``, the attributes ``is_last_row`` and ``is_first_col``
+        will be updated. You can use these booleans to decide whether to add x- and y-axis
+        labels respectively. These attributes will both be ``None`` before you call
+        ``next_subplot`` for the first time.
         """
         sizex, sizey = figsize
         if nx is None and ny is None:
@@ -88,10 +105,13 @@ class Subplots(object):
         self.ny = nplots // nx + ((nplots % nx) > 0)
         self.sharex = sharex
         self.sharey = sharey
+        self.hide_shared_ticks = hide_shared_ticks
         self.fig = plt.figure(figsize=(sizex*self.nx, sizey*self.ny))
         self.iplot = 0
         self.axes = np.full([self.ny, self.nx], None)
         self.subplot_kw = dict() if subplot_kw is None else subplot_kw
+        self.is_first_col = None
+        self.is_last_row = None
 
     def next_subplot(self):
         """Create the next subplot and return the handle to it
@@ -105,16 +125,29 @@ class Subplots(object):
         ind_y, ind_x = np.unravel_index(self.iplot-1, self.axes.shape)
         sharex_ax = None
         sharey_ax = None
-        if self.iplot > self.nx and self.sharex:
+        if self.iplot > self.nx and self.sharex == 'col':
             # If not in the first row, get the first axes in this column
             sharex_ax = self.axes[0, ind_x]
-        if ind_x != 0 and self.sharey:
+        elif self.iplot > 0 and (self.sharex == 'all' or self.sharex is True):
+            # If not the first plot, get the first axes overall to share with
+            sharex_ax = self.axes[0, 0]
+
+        if ind_x != 0 and self.sharey == 'row':
             # If not in the first column, get the first axes in this row
             sharey_ax = self.axes[ind_y, 0]
+            # If not the first plot, get the first axes overall to share with
+        elif self.iplot > 0 and (self.sharey == 'all' or self.sharey is True):
+            sharey_ax = self.axes[0, 0]
+
         ax = self.fig.add_subplot(self.ny, self.nx, self.iplot, sharex=sharex_ax, sharey=sharey_ax, **self.subplot_kw)
-        if self.sharex and ind_y < self.ny - 1:
+        hide_xticks = self.hide_shared_ticks is True or self.hide_shared_ticks == 'x'
+        self.is_last_row = ind_y == self.ny - 1
+        if hide_xticks and self.sharex and not self.is_last_row:
             plt.setp(ax.get_xticklabels(), visible=False)
-        if self.sharey and ind_x != 0:
+
+        hide_yticks = self.hide_shared_ticks is True or self.hide_shared_ticks == 'y'
+        self.is_first_col = ind_x == 0
+        if hide_yticks and self.sharey and not self.is_first_col:
             plt.setp(ax.get_yticklabels(), visible=False)
 
 
