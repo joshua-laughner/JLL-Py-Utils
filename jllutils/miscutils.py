@@ -902,7 +902,7 @@ def parse_fortran_format(fmt_str, rtype='fmtstr', bare_fmt=False):
     # Fortran uses "a" for strings, Python uses "s"
     # "pe" comes up as a way to change the power of 10 that an
     #   exponential is, Python has no equivalent.
-    fmttype_subs = {'pe': 'e', 'i': 'd', 'a': 's'}
+    fmttype_subs = {'pe': 'e', 'pf': 'f', 'i': 'd', 'a': 's'}
 
     fmt_str = fmt_str.strip()
     if not fmt_str.startswith('(') or not fmt_str.endswith(')'):
@@ -934,9 +934,11 @@ def parse_fortran_format(fmt_str, rtype='fmtstr', bare_fmt=False):
             idx += nspaces
         else:
             match = re.match(r'(\d*)([a-z]+)(\d+)(\.\d+)?', part, re.IGNORECASE)
-            # This is not always right. For specs like "1pe12.4", the "1" is not repeats,
-            # but is associated with the "p".
             repeats, fmttype, width, prec = match.groups()
+            if fmttype[0] == 'p':
+                # In format specifiers like "1pe11.4", the leading 1 is not a repeat,
+                # but instead used to specify the place shift
+                repeats = ''
             # Substitute in the python-compatible format type
             fmttype = fmttype_subs.get(fmttype, fmttype)
             prec = '' if prec is None else prec
