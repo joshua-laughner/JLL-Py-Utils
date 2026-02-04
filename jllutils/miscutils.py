@@ -11,6 +11,7 @@ import numpy as np
 import os
 from pathlib import Path
 import re
+import requests
 import string
 import warnings
 
@@ -1196,3 +1197,17 @@ def _masks_equal(a, b):
     # If the arrays aren't elementwise equal and don't evaluate to all false,
     # then they really aren't equal
     return False
+
+
+def send_ntfy(message: str, topic=None):
+    """Send a ``message`` as a push notification using the ntfy service (https://ntfy.sh/)
+
+    The topic that the target phones are subscribed to must either be given as the ``topic``
+    argument or stored as the ``JLLUTILS_NTFY_TOPIC`` environmental variable. If neither
+    is true, then this will print a warning and return without sending the notification.
+    """
+    topic = topic or os.getenv('JLLUTILS_NTFY_TOPIC', None)
+    if topic is None:
+        warnings.warn('topic keyword not provided and JLLUTILS_NTFY_TOPIC not set, cannot send notification')
+        return
+    requests.post(f'https://ntfy.sh/{topic}', data=message.encode(encoding='utf-8'))
