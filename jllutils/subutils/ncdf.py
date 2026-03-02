@@ -930,7 +930,8 @@ class NcWrapper(object):
         return tuple(group_keys) + tuple(var_keys)
 
 
-def copy_nc_group(src, dst, recursive=True, exclude_dimensions=None, exclude_variables=None, exclude_groups=None, exclude_attributes=None):
+def copy_nc_group(src, dst, recursive=True, exclude_dimensions=None, exclude_variables=None, exclude_groups=None, exclude_attributes=None,
+                  replace_dims=None, modify_data=None):
     """Copy any group, including the root group, and (optionally) all of its descendants from one netCDF file into another
 
     Parameters
@@ -962,6 +963,14 @@ def copy_nc_group(src, dst, recursive=True, exclude_dimensions=None, exclude_var
         A list of attribute names not to copy into ``dst``. Only affects group level attributes; variable
         attributes are not affected. If ``recursive`` is ``True``, this affects all subordinate groups as well.
 
+    replace_dims : Dict[str, Tuple[str, int]]
+        A dictionary mapping old variable names used by variables to the new variables and their lengths. This
+        affects both the dimensions defined in the group(s) and used by the variables.
+
+    modify_data : Optional[Callable]
+        If given, a function that takes a netCDF variable and returns the array of data that should be copied
+        for that variable.
+
     Limitations
     -----------
     * Due to their complexity, character arrays can only be two dimensional and the second dimension *must* be 
@@ -974,6 +983,8 @@ def copy_nc_group(src, dst, recursive=True, exclude_dimensions=None, exclude_var
     exclude_variables = set() if exclude_variables is None else set(exclude_variables)
     exclude_groups = set() if exclude_groups is None else set(exclude_groups)
     exclude_attributes = set() if exclude_attributes is None else set(exclude_attributes)
+    replace_dims = dict() if replace_dims is None else replace_dims
+    replace_var_dims = dict() if replace_dims is None else {k: v[0] for k, v in replace_dims.items()}
 
     grp_attrs = {k: v for k, v in src.__dict__.items() if k not in exclude_attributes}
     dst.setncatts(grp_attrs)
@@ -981,14 +992,18 @@ def copy_nc_group(src, dst, recursive=True, exclude_dimensions=None, exclude_var
     for dimname, dimension in src.dimensions.items():
         if dimname in exclude_dimensions:
             continue
-        dimlen = len(dimension) if not dimension.isunlimited() else None
-        dst.createDimension(dimname, dimlen)
+        elif dimname in replace_dims:
+            new_name, new_len = replace_dims[dimname]
+            dst.createDimension(new_name, new_len)
+        else:
+            dimlen = len(dimension) if not dimension.isunlimited() else None
+            dst.createDimension(dimname, dimlen)
 
     for varname in src.variables.keys():
         if varname in exclude_variables:
             continue
 
-        copy_nc_var(src, dst, varname)
+        copy_nc_var(src, dst, varname, replace_dims=replace_var_dims, modify_data=modify_data)
 
 
     for grpname, group in src.groups.items():
@@ -998,10 +1013,10 @@ def copy_nc_group(src, dst, recursive=True, exclude_dimensions=None, exclude_var
         newgrp = dst.createGroup(grpname)
         if recursive:
             copy_nc_group(group, newgrp, recursive=recursive, exclude_dimensions=exclude_dimensions, exclude_variables=exclude_variables,
-                          exclude_groups=exclude_groups, exclude_attributes=exclude_attributes)
+                          exclude_groups=exclude_groups, exclude_attributes=exclude_attributes, replace_dims=replace_dims, modify_data=modify_data)
 
 
-def copy_nc_var(src, dst, varname, vardata=None, convert_str='no'):
+def copy_nc_var(src, dst, varname, vardata=None, modify_data=None, convert_str='no', replace_dims=None):
     """Copy a single netCDF variable from one group into another.
 
     Parameters
@@ -1019,10 +1034,17 @@ def copy_nc_var(src, dst, varname, vardata=None, convert_str='no'):
         If given, this is written as the data in ``dst`` rather than the original 
         data in ``src``. Useful for subsetting the data.
 
+    modify_data : Optional[Callable]
+        If given and if ``vardata`` is ``None``, this function will receive the variable being copied
+        and must return the array of data to write. 
+
     convert_str : str
         If "no" (default), then variable length strings and character arrays are both left as is.
         If "stoc" (string to character), variable length strings are converted to character arrays.
         ("ctos" is planned but not yet implemented.)
+
+    replace_dims : Dict[str, str]
+        A dictionary mapping old variable names to new ones.
 
     Limitations
     -----------
@@ -1042,9 +1064,15 @@ def copy_nc_var(src, dst, varname, vardata=None, convert_str='no'):
         except AttributeError:
             return el
 
+    replace_dims = dict() if replace_dims is None else replace_dims
+
     variable = src[varname]
-    if vardata is None:
+    if vardata is None and modify_data is not None:
+        vardata = modify_data(variable)
+    elif vardata is None:
         vardata = variable[tuple()]
+
+    new_dims = tuple(replace_dims.get(d, d) for d in variable.dimensions)
 
     if variable.dtype is str and convert_str == 'stoc':
         strlen = max(len(get_string(s)) for s in vardata)
@@ -1054,9 +1082,9 @@ def copy_nc_var(src, dst, varname, vardata=None, convert_str='no'):
         strdim = f'c{strlen}'
         if strdim not in dst.dimensions:
             dst.createDimension(strdim, strlen)
-        newvar = dst.createVariable(varname, vardata.dtype, (list(variable.dimensions)[0], strdim))
+        newvar = dst.createVariable(varname, vardata.dtype, (new_dims[0], strdim))
     else:
-        newvar = dst.createVariable(varname, variable.datatype, variable.dimensions)
+        newvar = dst.createVariable(varname, variable.datatype, new_dims)
         newvar.setncatts(variable.__dict__)
 
     if variable.dtype is str and convert_str != 'stoc':
@@ -1209,7 +1237,10 @@ def compare_netcdf_data(file1, file2, check_attrs=True, exclude_attrs=set(), sub
 
 
 def _compare_netcdf_groups(ds1, ds2, group, check_attrs=True, exclude_attrs=set(), subset_fxn=None, verbose=False) -> bool:
-    all_match, common_vars = _compare_available_items(ds1.variables.keys(), ds2.variables.keys(), 'variables', group, verbose=verbose)
+    if group:
+        all_match, common_vars = _compare_available_items(ds1[group].variables.keys(), ds2[group].variables.keys(), 'variables', group, verbose=verbose)
+    else:
+        all_match, common_vars = _compare_available_items(ds1.variables.keys(), ds2.variables.keys(), 'variables', group, verbose=verbose)
     if not all_match and verbose is None:
         return all_match
 
@@ -1255,14 +1286,17 @@ def _compare_netcdf_groups(ds1, ds2, group, check_attrs=True, exclude_attrs=set(
             if verbose is None:
                 return all_match
 
-    groups_match, common_groups = _compare_available_items(ds1.groups.keys(), ds2.groups.keys(), 'groups', group, verbose=verbose)
+    if group:
+        groups_match, common_groups = _compare_available_items(ds1[group].groups.keys(), ds2[group].groups.keys(), 'groups', group, verbose=verbose)
+    else:
+        groups_match, common_groups = _compare_available_items(ds1.groups.keys(), ds2.groups.keys(), 'groups', group, verbose=verbose)
     if not groups_match and verbose is None:
         return False
     elif not groups_match:
         all_match = False
 
     for next_group in sorted(common_groups):
-        group_matches = _compare_netcdf_groups(ds1, ds2, f'{group}/{next_group}', subset_fxn=subset_fxn, verbose=verbose)
+        group_matches = _compare_netcdf_groups(ds1, ds2, f'{group}/{next_group}', subset_fxn=subset_fxn, exclude_attrs=exclude_attrs, verbose=verbose)
         if not group_matches:
             all_match = False
             if verbose is None:
