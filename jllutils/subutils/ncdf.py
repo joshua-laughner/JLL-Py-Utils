@@ -6,7 +6,7 @@ from __future__ import print_function, absolute_import, division, unicode_litera
 from typing import Optional
 
 import cftime
-from collections import OrderedDict
+from collections import OrderedDict, deque
 import contextlib
 import datetime as dt
 from hashlib import sha1
@@ -1444,3 +1444,127 @@ def read_opendap_url(url: str, variables: dict, date: Optional[dt.datetime] = No
                 data[key] = data[key].data
 
     return data
+
+
+class CfTimeParser:
+    def convert_time(self, var) -> pd.DatetimeIndex:
+        values = var[:].astype(float).filled(np.nan)
+        if hasattr(var, 'units'):
+            units = var.units
+        elif hasattr(var, 'unit'):
+            units = var.unit
+        else:
+            raise AttributeError('Cannot convert time if variable does not have "units" or "unit" attribute')
+
+        try:
+            time_unit_str, epoch_time_str = units.split('since')
+            epoch = pd.to_datetime(epoch_time_str.strip())
+            time_deltas = pd.to_timedelta(values, unit=time_unit_str.strip())
+        except ValueError:
+            raise ValueError(
+                f'Could not interpret units "{units}" as CF-compliant time. '
+                'Expected a string like "DURATION_UNITS since TIME_STR". '
+                'See upstream errors for root cause.'
+            )
+
+        return epoch + time_deltas
+
+
+def load_ncdf_as_dict(file, variables=None, time_variables=set(), time_parser=CfTimeParser()):
+    """Load data from a netCDF file as a dictionary.
+
+    Parameters
+    ----------
+    file
+        Path to the netCDF file
+
+    variables
+        List of variables to load. To load variables in subgroups, specify the path,
+        e.g., "DATA/xco2". If omitted, all variables will be loaded.
+
+    time_variables
+        Set of variables to interpret as times using the ``time_parser``. The name must match
+        the full variable name. That is, if the time variable is in a subgroup "DATA", you
+        would pass ``{'DATA/time'}``. If loading all variables, note that variable names
+        will not have leading slashes. If you specify variable names, follow the convention
+        in your list.
+
+    time_parser
+        An instance with a ``convert_time`` method that takes a netCDF variable instance and
+        returns a Pandas DatetimeIndex.
+
+    Returns
+    -------
+    data_dict
+        A dictionary with variable names as keys and arrays as values. No effort is made to convert
+        masked arrays to non-masked arrays.
+    """
+    with ncdf.Dataset(file) as ds:
+        variables = variables or _list_all_variables(ds)
+        data = dict()
+        for varname in variables:
+            if varname in time_variables:
+                data[varname] = time_parser.convert_time(ds[varname])
+            else:
+                data[varname] = ds[varname][:]
+        return data
+
+
+def load_ncdf_as_dataframe(file, variables=None, non_1d='skip', time_variables=set(), time_parser=CfTimeParser()):
+    """Load 1D data from a netCDF file as a dictionary
+
+    Parameters
+    ----------
+    file
+        Path to the netCDF file
+
+    variables
+        List of variables to load. To load variables in subgroups, specify the path,
+        e.g., "DATA/xco2". If omitted, all variables will be loaded.
+
+    non_1d
+        What to do if encountering a non-1D variable. "skip" will print a message and skip it,
+        "skip-silent" will skip without the message, and anything else will raise a :class:`ValueError`
+        for non-1D variables.
+
+    time_variables
+        Set of variables to interpret as times using the ``time_parser``. The name must match
+        the full variable name. That is, if the time variable is in a subgroup "DATA", you
+        would pass ``{'DATA/time'}``. If loading all variables, note that variable names
+        will not have leading slashes. If you specify variable names, follow the convention
+        in your list.
+
+    time_parser
+        An instance with a ``convert_time`` method that takes a netCDF variable instance and
+        returns a Pandas DatetimeIndex.
+
+    Returns
+    -------
+    df
+        A dataframe with the variables as columns and a default index.
+    """
+    data = load_ncdf_as_dict(file, variables=variables, time_variables=time_variables, time_parser=time_parser)
+    df_dict = dict()
+    for key in list(data.keys()):
+        if np.ndim(data[key]) != 1:
+            if non_1d == 'skip':
+                print(f'Skipping non-1D variable "{key}"')
+            elif non_1d == 'skip-silent':
+                pass
+            else:
+                raise ValueError(f'Variable "{key}" is not 1D')
+        else:
+            df_dict[key] = data[key]
+
+    return pd.DataFrame(df_dict)
+
+
+def _list_all_variables(ds):
+    variables = []
+    groups = deque([('', ds)])
+    while groups:
+        prefix, curr_grp = groups.popleft()
+        variables.extend(f'{prefix}/{k}'.lstrip('/') for k in curr_grp.variables.keys())
+        for grpname, grp in curr_grp.groups.items():
+            groups.append((f'{prefix}/{grpname}', grp))
+    return variables
