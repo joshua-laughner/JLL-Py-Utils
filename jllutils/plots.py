@@ -1423,3 +1423,24 @@ def _apply_env_type(values, env_type, env_axis, line_op):
         upper = y_bar + upper
 
     return lower, y_bar, upper, label
+
+
+class TerrainNorm(mpl.colors.Normalize):
+    """
+    Forces 0 to align with the blue-to-green transition (0.25) 
+    of the matplotlib 'terrain' colormap. Note that this may cause
+    odd spacing of the limit values of the colorbar compared to the
+    ticks. A workaround currently is to set vmin and vmin manually.
+    """
+    def __init__(self, vmin=None, vmax=None, clip=False):
+        super().__init__(vmin, vmax, clip)
+
+    def __call__(self, value, clip=None):
+        # x is the data range: [min_data, sea_level, max_data]
+        x = [self.vmin, 0, self.vmax]
+
+        # y is the colormap scale: [bottom, coast, top]
+        y = [0.0, 0.25, 1.0] 
+
+        # Interpolate the data onto the colormap scale
+        return np.ma.masked_array(np.interp(value, x, y))
