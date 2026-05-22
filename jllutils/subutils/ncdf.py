@@ -1189,7 +1189,7 @@ def _find_dim_in_group_or_parents(grp, dimname):
     return KeyError('No dimension named "{name}" found in this group or any parent'.format(name=dimname))
 
 
-def compare_netcdf_data(file1, file2, check_attrs=True, exclude_attrs=set(), subset_fxn=None, verbose=False) -> bool:
+def compare_netcdf_data(file1, file2, check_attrs=True, check_values=True, exclude_attrs=set(), subset_fxn=None, verbose=False) -> bool:
     """Compare the values of variables in two netCDF files.
 
     This will recursively check that all groups have the same variables and
@@ -1204,6 +1204,9 @@ def compare_netcdf_data(file1, file2, check_attrs=True, exclude_attrs=set(), sub
     check_attrs
         Whether to include attributes in the comparison; note that attributes are compared with simple equality
         (so floating point attributes may return false negatives).
+
+    check_values
+        Whether to include the values of the variables in the comparison.
 
     exclude_attrs
         A sequence of attribute names to exclude from the comparison. Any attribute with one of these names, be it
@@ -1233,10 +1236,10 @@ def compare_netcdf_data(file1, file2, check_attrs=True, exclude_attrs=set(), sub
         ``True`` if the two files' data match (except for any excluded attributes), ``False`` otherwise.
     """
     with ncdf.Dataset(file1) as ds1, ncdf.Dataset(file2) as ds2:
-        return _compare_netcdf_groups(ds1, ds2, '', check_attrs=check_attrs, exclude_attrs=exclude_attrs, subset_fxn=subset_fxn, verbose=verbose)
+        return _compare_netcdf_groups(ds1, ds2, '', check_attrs=check_attrs, check_values=check_values, exclude_attrs=exclude_attrs, subset_fxn=subset_fxn, verbose=verbose)
 
 
-def _compare_netcdf_groups(ds1, ds2, group, check_attrs=True, exclude_attrs=set(), subset_fxn=None, verbose=False) -> bool:
+def _compare_netcdf_groups(ds1, ds2, group, check_attrs=True, check_values=True, exclude_attrs=set(), subset_fxn=None, verbose=False) -> bool:
     if group:
         all_match, common_vars = _compare_available_items(ds1[group].variables.keys(), ds2[group].variables.keys(), 'variables', group, verbose=verbose)
     else:
@@ -1249,42 +1252,43 @@ def _compare_netcdf_groups(ds1, ds2, group, check_attrs=True, exclude_attrs=set(
         if verbose is None:
             return all_match
 
-    for varname in sorted(common_vars):
-        var1 = ds1[f'{group}/{varname}']
-        ds1_vals = var1[:]
-        var2 = ds2[f'{group}/{varname}']
-        ds2_vals = var2[:]
-        if subset_fxn is not None:
-            ds1_vals = subset_fxn(ds1_vals, varname, group, ds1, False)
-            ds2_vals = subset_fxn(ds2_vals, varname, group, ds2, True)
+    if check_values:
+        for varname in sorted(common_vars):
+            var1 = ds1[f'{group}/{varname}']
+            ds1_vals = var1[:]
+            var2 = ds2[f'{group}/{varname}']
+            ds2_vals = var2[:]
+            if subset_fxn is not None:
+                ds1_vals = subset_fxn(ds1_vals, varname, group, ds1, False)
+                ds2_vals = subset_fxn(ds2_vals, varname, group, ds2, True)
 
-        v1_masked = hasattr(ds1_vals, 'mask')
-        v2_masked = hasattr(ds2_vals, 'mask')
-        if v1_masked and v2_masked:
-            equal = compare_masked_arrays(ds1_vals, ds2_vals)
-            both_masked_or_unmasked = True
-        else:
-            equal = compare_unmasked_arrays(ds1_vals, ds2_vals)
-            both_masked_or_unmasked = not (v1_masked or v2_masked)
+            v1_masked = hasattr(ds1_vals, 'mask')
+            v2_masked = hasattr(ds2_vals, 'mask')
+            if v1_masked and v2_masked:
+                equal = compare_masked_arrays(ds1_vals, ds2_vals)
+                both_masked_or_unmasked = True
+            else:
+                equal = compare_unmasked_arrays(ds1_vals, ds2_vals)
+                both_masked_or_unmasked = not (v1_masked or v2_masked)
 
-        if both_masked_or_unmasked:
-            mask_warning = ''
-        else:
-            mask_warning = '(NOTE: comparing a masked array with a standard array)'
+            if both_masked_or_unmasked:
+                mask_warning = ''
+            else:
+                mask_warning = '(NOTE: comparing a masked array with a standard array)'
 
-        if not equal:
-            all_match = False
-            if verbose is not None:
-                print(f'- {group}/{varname} values do NOT match {mask_warning}')
-            elif not all_match and verbose is None:
-                return all_match
-        elif verbose:
-            print(f'- {group}/{varname} values do match {mask_warning}')
+            if not equal:
+                all_match = False
+                if verbose is not None:
+                    print(f'- {group}/{varname} values do NOT match {mask_warning}')
+                elif not all_match and verbose is None:
+                    return all_match
+            elif verbose:
+                print(f'- {group}/{varname} values do match {mask_warning}')
 
-        if check_attrs and not _check_netcdf_attrs(var1, var2, f'{group}/{varname}', exclude_attrs=exclude_attrs, verbose=verbose):
-            all_match = False
-            if verbose is None:
-                return all_match
+            if check_attrs and not _check_netcdf_attrs(var1, var2, f'{group}/{varname}', exclude_attrs=exclude_attrs, verbose=verbose):
+                all_match = False
+                if verbose is None:
+                    return all_match
 
     if group:
         groups_match, common_groups = _compare_available_items(ds1[group].groups.keys(), ds2[group].groups.keys(), 'groups', group, verbose=verbose)
@@ -1296,7 +1300,11 @@ def _compare_netcdf_groups(ds1, ds2, group, check_attrs=True, exclude_attrs=set(
         all_match = False
 
     for next_group in sorted(common_groups):
-        group_matches = _compare_netcdf_groups(ds1, ds2, f'{group}/{next_group}', subset_fxn=subset_fxn, exclude_attrs=exclude_attrs, verbose=verbose)
+        group_matches = _compare_netcdf_groups(
+            ds1, ds2, f'{group}/{next_group}', subset_fxn=subset_fxn,
+            check_attrs=check_attrs, check_values=check_values, exclude_attrs=exclude_attrs,
+            verbose=verbose
+        )
         if not group_matches:
             all_match = False
             if verbose is None:
